@@ -1081,6 +1081,31 @@ def gate(root: Path, art_id: str) -> list:
     return reasons
 
 
+UNDERSTANDING_SECTIONS = ("Tôi hiểu yêu cầu là", "Thiết kế sơ bộ",
+                          "Chưa rõ / thiếu thông tin", "Câu hỏi cho Dung")
+
+
+def ask_text(root: Path, art_id: str) -> str:
+    """Trích nguyên văn phần hiểu yêu cầu + câu hỏi của artifact research để chuyển cho Dung."""
+    _, _, art = find_entry(root, art_id)
+    if art.get("type") != "research":
+        raise OrcError(f"{art_id} không phải research")
+    _, body = split_frontmatter(read_text(content_path(root, art_id)))
+    out, errs = [f"# {art_id}: {art.get('summary') or 'Hiểu yêu cầu & thiết kế'}"], []
+    for sec in UNDERSTANDING_SECTIONS:
+        text = section_body(body, sec)
+        text = re.sub(r"<!--.*?-->", "", text or "", flags=re.S).strip() if text is not None else None
+        if text is None:
+            errs.append(f"thiếu mục '## {sec}'")
+        elif not text or text == PLACEHOLDER:
+            errs.append(f"mục '{sec}' chưa điền")
+        else:
+            out += ["", f"## {sec}", text]
+    if errs:
+        raise OrcError(f"{art_id}: " + "; ".join(errs))
+    return "\n".join(out) + "\n"
+
+
 def report(root: Path, task_id: str) -> str:
     """Báo cáo tất định cho một yêu cầu: task gốc, plan, task con, review, evidence, quyết định."""
     _, _, root_task = find_entry(root, task_id)
@@ -1192,6 +1217,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("report", help="báo cáo cho một yêu cầu (TASK gốc)")
     s.add_argument("id")
 
+    s = sub.add_parser("ask", help="trích phần hiểu yêu cầu + câu hỏi của ART research cho Dung")
+    s.add_argument("id")
+
     s = sub.add_parser("validate", help="kiểm tra toàn bộ .orchestra/")
     s.add_argument("--handoff", action="store_true", help="kiểm cả handoff phiên đang mở")
     s.add_argument("--key")
@@ -1244,6 +1272,8 @@ def run(argv=None) -> int:
         print("PROCEED")
     elif args.cmd == "report":
         sys.stdout.write(report(root, args.id))
+    elif args.cmd == "ask":
+        sys.stdout.write(ask_text(root, args.id))
     elif args.cmd == "validate":
         errs = validate(root)
         if args.handoff:

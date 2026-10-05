@@ -13,12 +13,15 @@
 
 1. Bấm **New session** trong Claude Code.
 2. Gõ: `/auto <mô tả yêu cầu>`, ví dụ `/auto B2: chặn nạp file Excel/CSV lớn hơn 20 MB, báo lỗi dễ hiểu`.
-3. Claude tự làm hết: ý tưởng → thiết kế → plan → code → review → commit vào nhánh `orchestra/TASK-x`
-   trong `app/` (không merge, không push) → trả **một báo cáo** (bảng task, bằng chứng, giả định đã tự chọn,
-   việc anh/chị cần thử tay).
-4. Claude chỉ dừng hỏi khi plan đụng quy tắc nghiệp vụ / data model / kiến trúc, yêu cầu quá mơ hồ,
-   reviewer báo xung đột quyết định, hoặc sửa quá 2 lần chưa đạt. Trả lời một từ là Claude chạy tiếp.
-5. Đọc báo cáo, thử tay, rồi bảo Claude "merge và push".
+3. **Chặng 1 — Claude dừng để anh/chị đọc**: "Tôi hiểu yêu cầu là…", "Thiết kế sơ bộ", "Chưa rõ / thiếu
+   thông tin", "Câu hỏi cho anh/chị" (mỗi câu có phương án khuyên dùng).
+4. Anh/chị trả lời câu hỏi, sửa chỗ Claude hiểu sai (hoặc gõ "đồng ý theo khuyên dùng"). Nếu còn lệch nhiều,
+   Claude viết lại và hỏi tiếp.
+5. **Chặng 2 — Claude tự chạy**: plan → code → review → commit vào nhánh `orchestra/TASK-x` trong `app/`
+   (không merge, không push) → trả **một báo cáo** (bảng task, bằng chứng, giả định, việc cần thử tay).
+   Chỉ dừng lại hỏi nếu phát sinh điều mới đụng quy tắc nghiệp vụ / data model / kiến trúc, reviewer báo
+   xung đột quyết định, hoặc sửa quá 2 lần chưa đạt.
+6. Đọc báo cáo, thử tay, rồi bảo Claude "merge và push".
 
 ## Cách từng bước (khi muốn kiểm soát từng khâu)
 

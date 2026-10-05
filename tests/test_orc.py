@@ -473,6 +473,23 @@ class TestGateAndReport(Base):
         self.assertTrue(any("orc-tasks" in r for r in reasons))
         self.assertTrue(any("AC-n" in r for r in reasons))
 
+    def test_ask_requires_filled_understanding(self):
+        t = oc.new_task(self.root, title="x", owner="researcher")["id"]
+        art = oc.new_artifact(self.root, "research", t, summary="Hiểu B2")["id"]
+        with self.assertRaises(oc.OrcError):
+            oc.ask_text(self.root, art)  # còn _(điền)_
+        path = oc.content_path(self.root, art)
+        fm, body = oc.split_frontmatter(path.read_text(encoding="utf-8"))
+        body = body.replace(oc.PLACEHOLDER, "Q1: Giới hạn 20 MB? — Khuyên: có", 1)
+        body = body.replace(oc.PLACEHOLDER, "Không có")
+        oc.write_text(path, oc.join_frontmatter(fm, body))
+        text = oc.ask_text(self.root, art)
+        self.assertIn("## Câu hỏi cho Dung", text)
+        self.assertIn("Q1: Giới hạn 20 MB?", text)
+        self.assertNotIn("<!--", text)
+        with self.assertRaises(oc.OrcError):
+            oc.ask_text(self.root, oc.new_artifact(self.root, "plan", t)["id"])
+
     def test_gate_rejects_untouched_template(self):
         t = oc.new_task(self.root, title="x", owner="researcher")["id"]
         art = oc.new_artifact(self.root, "plan", t)["id"]

@@ -94,11 +94,17 @@ Coder trả file ngoài `write_scope` → orc từ chối cả envelope, không 
 
 ## 6b. Chế độ tự chạy `/auto` (Dung yêu cầu 2026-10-05)
 
-Một lệnh chạy trọn: researcher (ý tưởng → thiết kế → plan) → `orc gate` → tự accept plan → vòng
-coder/reviewer theo `orc next` + `ROUTE:` → commit nhánh `orchestra/<ROOT>` (không merge/push) → handoff →
-trả `orc report`. Chỉ dừng khi: `orc gate` = ASK, `HỎI DUNG`, envelope bị từ chối 2 lần, lỗi môi trường.
-Researcher tự chọn mặc định hợp lý và ghi "Giả định: ..."; chỉ ghi vào `## Cần Dung quyết` điều đụng quy tắc
-nghiệp vụ, data model, kiến trúc, phạm vi mơ hồ hoặc không đảo ngược được.
+Hai chặng (Dung chốt lại 2026-10-05):
+
+1. **Hiểu yêu cầu & thiết kế — luôn dừng.** Researcher viết ART `research` 4 mục: Tôi hiểu yêu cầu là ·
+   Thiết kế sơ bộ · Chưa rõ / thiếu thông tin · Câu hỏi cho Dung. A gửi Dung nguyên văn `orc ask ART-x`.
+   Câu trả lời của Dung → DEC accepted (scope = ART research); ART research → accepted.
+2. **Plan → code → review → báo cáo — tự chạy.** Task plan có inputs = ART research + DEC; `orc gate` →
+   tự accept plan → vòng coder/reviewer theo `orc next` + `ROUTE:` → commit nhánh `orchestra/<ROOT>`
+   (không merge/push) → handoff → trả `orc report <task plan>`. Chỉ dừng khi: `orc gate` = ASK, `HỎI DUNG`,
+   envelope bị từ chối 2 lần, lỗi môi trường.
+
+`orc ask ART-x` từ chối nếu ART không phải research hoặc còn mục chưa điền.
 
 ## 7. Phiên và handoff (D5)
 
