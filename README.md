@@ -52,6 +52,8 @@ Mở phiên Claude Code mới trong dự án: brief tự nạp. Luồng: `/plan 
 2. Xoá 2 junction: `cmd /c rmdir %USERPROFILE%\.claude\agents` và `...\commands` (`rmdir` chỉ xoá liên kết, không xoá file trong kit).
 3. Bỏ `orchestra-kit\cli` khỏi PATH của user (Settings → Environment Variables).
 
+Dùng hằng ngày: [HUONG-DAN-SU-DUNG.md](HUONG-DAN-SU-DUNG.md).
+
 ## Phát triển kit
 
 ```powershell
