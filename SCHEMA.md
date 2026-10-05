@@ -182,6 +182,7 @@ Nguồn: code.claude.com/docs/en/hooks, /sub-agents, /slash-commands; Claude Cod
 | `orc graph status` | trạng thái + file đổi + vấn đề (A chỉ đọc lệnh này, D3) |
 | `orc graph update [--force]` | dựng lại khi code/SQL đổi; fresh thì không chạy engine; lỗi ⇒ mã 4 |
 | `orc graph query T...` / `affected X` / `explain X` / `path A B` | kết quả kèm `state`, `authoritative`, `truncated` |
+| `orc docs index` / `orc docs check` | sinh lại phần tự động của `docs/INDEX.md` từ frontmatter / kiểm frontmatter, INDEX, đường dẫn `docs/…` gãy trong md và chú thích code (chạy được cả khi chưa có `.orchestra/`) |
 | `orc ctx seal CTX-x` / `orc ctx check CTX-x` | đăng ký CTX / báo file đã đổi (mã 5) |
 
 ## 11. Giai đoạn sau (D7 còn lại)

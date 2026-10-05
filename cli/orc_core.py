@@ -1293,6 +1293,159 @@ def _graph_cmd(root: Path, a) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- docs (INDEX.md)
+
+DOC_FIELDS = ("status", "feature", "updated", "summary", "read_when", "supersedes")
+DOC_STATUS = ("current", "open", "implemented", "superseded", "archived")
+DOC_SCAN_EXT = {".md", ".ts", ".tsx", ".js", ".jsx", ".cjs", ".mjs", ".py", ".sql", ".yaml", ".yml"}
+DOC_SKIP_DIRS = {"node_modules", "dist", "build", "release", "out", ".git", "__pycache__",
+                 "build-tmp", "build-temp", ".venv"}
+DOC_REF_RE = re.compile(r"(?<![\w/.-])(docs/[\w./-]+?\.md)\b")
+INDEX_START, INDEX_END = "<!-- orc:docs:start -->", "<!-- orc:docs:end -->"
+
+
+def docs_root(start) -> Path:
+    """Gốc dự án cho lệnh docs: có .orchestra, hoặc thư mục gần nhất chứa docs/ hay .git."""
+    root = find_root(start)
+    if root:
+        return root
+    p = Path(start).resolve()
+    for d in (p, *p.parents):
+        if (d / "docs").is_dir() or (d / ".git").exists():
+            return d
+    raise OrcError("Không thấy thư mục dự án (cần docs/ hoặc .git)")
+
+
+def docs_files(root: Path) -> list:
+    d = root / "docs"
+    return sorted(p for p in d.rglob("*.md") if p.name != "INDEX.md") if d.is_dir() else []
+
+
+def doc_meta(path: Path):
+    try:
+        fm, _ = split_frontmatter(read_text(path))
+    except Exception as exc:  # YAML hỏng
+        return None, f"frontmatter lỗi YAML ({exc})"
+    return fm, None
+
+
+def _walk_text_files(root: Path):
+    for dirpath, dirnames, filenames in os.walk(root):
+        keep = []
+        for d in dirnames:
+            if d in DOC_SKIP_DIRS or (d.startswith(".") and d not in (".orchestra", ".claude")):
+                continue
+            if d == "cache" and Path(dirpath).name == ".orchestra":
+                continue
+            keep.append(d)
+        dirnames[:] = keep
+        for name in filenames:
+            p = Path(dirpath) / name
+            if p.suffix.lower() in DOC_SCAN_EXT:
+                yield p
+
+
+def docs_check(root: Path) -> tuple:
+    """Trả (lỗi, cảnh báo). Lỗi: frontmatter sai/thiếu, không có trong INDEX, đường dẫn docs/ gãy
+    ở file không lưu trữ. Đường dẫn gãy bên trong tài liệu archived chỉ là cảnh báo (lịch sử)."""
+    errs, warns = [], []
+    index = root / "docs" / "INDEX.md"
+    index_text = read_text(index) if index.exists() else ""
+    if not index.exists():
+        errs.append("thiếu docs/INDEX.md")
+    archived = set()
+    for p in docs_files(root):
+        rel = p.relative_to(root).as_posix()
+        if index.exists() and f"({rel.removeprefix('docs/')})" not in index_text:
+            errs.append(f"{rel}: chưa có trong docs/INDEX.md (chạy `orc docs index`)")
+        fm, bad = doc_meta(p)
+        if bad:
+            errs.append(f"{rel}: {bad}")
+            continue
+        if fm is None:
+            errs.append(f"{rel}: thiếu frontmatter")
+            continue
+        missing = [f for f in DOC_FIELDS if f not in fm]
+        if missing:
+            errs.append(f"{rel}: frontmatter thiếu {missing}")
+        if fm.get("status") not in DOC_STATUS:
+            errs.append(f"{rel}: status '{fm.get('status')}' phải là {'|'.join(DOC_STATUS)}")
+        if len(str(fm.get("summary") or "")) > SUMMARY_MAX:
+            errs.append(f"{rel}: summary > {SUMMARY_MAX} ký tự")
+        if not str(fm.get("summary") or "").strip():
+            errs.append(f"{rel}: thiếu summary")
+        for s in as_list(fm.get("supersedes")):
+            if not (root / str(s)).exists():
+                errs.append(f"{rel}: supersedes {s} không tồn tại")
+        if fm.get("status") == "archived":
+            archived.add(rel)
+    for p in _walk_text_files(root):
+        rel = p.relative_to(root).as_posix()
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for ref in sorted(set(DOC_REF_RE.findall(text))):
+            if not (root / ref).exists():
+                msg = f"{rel}: đường dẫn gãy {ref}"
+                (warns if rel in archived else errs).append(msg)
+    return errs, warns
+
+
+def _md_cell(text) -> str:
+    return " ".join(str(text or "").split()).replace("|", "\\|")
+
+
+def docs_index(root: Path) -> str:
+    """Sinh lại phần tự động của docs/INDEX.md từ frontmatter. Giữ nguyên phần viết tay."""
+    groups = {}
+    for p in docs_files(root):
+        rel = p.relative_to(root / "docs").as_posix()
+        fm, _ = doc_meta(p)
+        fm = fm or {}
+        parts = rel.split("/")
+        if parts[0] == "features" and len(parts) > 2:
+            group = "/".join(parts[:2])
+        elif len(parts) > 1:
+            group = parts[0]
+        else:
+            group = "(gốc docs)"
+        groups.setdefault(group, []).append((rel, fm, p.stat().st_size))
+    fixed = ("architecture", "decisions", "audits", "archive")
+    order = (["architecture", "decisions"] + sorted(g for g in groups if g.startswith("features/"))
+             + ["audits"] + sorted(g for g in groups if g not in fixed and not g.startswith("features/"))
+             + ["archive"])
+    lines = [INDEX_START, "",
+             "<!-- Phần này do `orc docs index` sinh từ frontmatter. Không sửa tay; sửa frontmatter rồi chạy lại. -->",
+             ""]
+    for g in order:
+        if g not in groups:
+            continue
+        lines += [f"### {g}", "", "| File | Trạng thái | Đọc khi | Tóm tắt | KB |", "|---|---|---|---|---|"]
+        for rel, fm, size in groups[g]:
+            lines.append(f"| [{rel}]({rel}) | {_md_cell(fm.get('status'))} | {_md_cell(fm.get('read_when'))} | "
+                         f"{_md_cell(fm.get('summary'))} | {max(1, round(size / 1024))} |")
+        lines.append("")
+    if find_root(root) is not None:
+        decs = [d for d in load_registry(root, "decision") if d.get("status") == "accepted"]
+        if decs:
+            lines += ["### Quyết định mới (orchestra)", ""]
+            lines += [f"- {d['id']} ({_md_cell(d.get('scope'))}): {_md_cell(d.get('summary'))}" for d in decs]
+            lines.append("")
+    lines.append(INDEX_END)
+    block = "\n".join(lines)
+    index = root / "docs" / "INDEX.md"
+    text = read_text(index) if index.exists() else "# INDEX — bản đồ truy xuất tài liệu\n\n"
+    if INDEX_START in text and INDEX_END in text:
+        head, rest = text.split(INDEX_START, 1)
+        _, tail = rest.split(INDEX_END, 1)
+        text = head + block + tail
+    else:
+        text = text.rstrip() + "\n\n## Danh mục theo nhóm (tự sinh)\n\n" + block + "\n"
+    write_text(index, text)
+    return f"đã cập nhật {index.relative_to(root).as_posix()} ({sum(len(v) for v in groups.values())} file)"
+
+
 # ---------------------------------------------------------------- CLI
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1367,6 +1520,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--depth", type=int, default=2)
     s.add_argument("--open", action="store_true", help="view: mở bản đồ trong trình duyệt")
 
+    s = sub.add_parser("docs", help="docs/INDEX.md: index (sinh lại) | check (kiểm)")
+    s.add_argument("action", choices=("index", "check"))
+
     s = sub.add_parser("ctx", help="context: seal|check CTX-x")
     s.add_argument("action", choices=("seal", "check"))
     s.add_argument("id")
@@ -1383,6 +1539,19 @@ def run(argv=None) -> int:
     if args.cmd == "init":
         for path in cmd_init(start.resolve(), args.project_id, args.goal):
             print(f"tạo {path}")
+        return 0
+    if args.cmd == "docs":  # chạy được cả ở dự án chưa có .orchestra/
+        droot = docs_root(start)
+        if args.action == "index":
+            print(docs_index(droot))
+            return 0
+        errs, warns = docs_check(droot)
+        for w in warns:
+            print(f"cảnh báo: {w}")
+        if errs:
+            print("\n".join(errs))
+            return 1
+        print(f"OK ({len(docs_files(droot))} tài liệu, {len(warns)} cảnh báo)")
         return 0
     root = require_root(start)
     if args.cmd == "brief":
