@@ -438,5 +438,65 @@ class TestHandoffAndHooks(Base):
             self.assertEqual(r.returncode, 0)
 
 
+class TestGateAndReport(Base):
+    def write_plan(self, asks):
+        t = oc.new_task(self.root, title="Yêu cầu", owner="researcher")["id"]
+        art = oc.new_artifact(self.root, "plan", t)["id"]
+        path = oc.content_path(self.root, art)
+        fm, _ = oc.split_frontmatter(path.read_text(encoding="utf-8"))
+        body = PLAN_BODY + f"\n## Cần Dung quyết\n<!-- ghi chú -->\n{asks}\n"
+        oc.write_text(path, oc.join_frontmatter(fm, body))
+        return t, art
+
+    def test_gate_proceeds_when_nothing_to_ask(self):
+        _, art = self.write_plan("- Không có")
+        self.assertEqual(oc.gate(self.root, art), [])
+        code, out, _ = cli(self.root, "gate", art)
+        self.assertEqual((code, out.strip()), (0, "PROCEED"))
+
+    def test_gate_asks_on_questions_and_proposed_decisions(self):
+        t, art = self.write_plan("- Đổi lifecycle đơn hàng?")
+        oc.new_decision(self.root, "Thêm bảng mới", scope=t)
+        reasons = oc.gate(self.root, art)
+        self.assertTrue(any("lifecycle" in r for r in reasons))
+        self.assertTrue(any("DEC-0001" in r for r in reasons))
+        self.assertEqual(cli(self.root, "gate", art)[0], 3)
+
+    def test_gate_asks_when_section_or_tasks_missing(self):
+        t = oc.new_task(self.root, title="x", owner="researcher")["id"]
+        art = oc.new_artifact(self.root, "plan", t)["id"]  # template: AC-1 có, orc-tasks mẫu có
+        path = oc.content_path(self.root, art)
+        fm, _ = oc.split_frontmatter(path.read_text(encoding="utf-8"))
+        oc.write_text(path, oc.join_frontmatter(fm, "# trống\n"))
+        reasons = oc.gate(self.root, art)
+        self.assertTrue(any("thiếu mục" in r for r in reasons))
+        self.assertTrue(any("orc-tasks" in r for r in reasons))
+        self.assertTrue(any("AC-n" in r for r in reasons))
+
+    def test_gate_rejects_untouched_template(self):
+        t = oc.new_task(self.root, title="x", owner="researcher")["id"]
+        art = oc.new_artifact(self.root, "plan", t)["id"]
+        reasons = oc.gate(self.root, art)
+        self.assertTrue(any("task mẫu" in r for r in reasons), reasons)
+        self.assertTrue(any("tiêu chí mẫu" in r for r in reasons), reasons)
+
+    def test_report_covers_tasks_evidence_and_decisions(self):
+        t, art = self.write_plan("Không có")
+        oc.set_fields(self.root, art, {"status": "accepted"})
+        ui, doc = [e["id"] for e in oc.tasks_from_plan(self.root, art)]
+        oc.promote(self.root)
+        self.dispatch_and_finish(ui)
+        self.review(ui, status="done")
+        oc.new_decision(self.root, "CSV thêm dấu nháy", scope=art, status="accepted")
+        text = oc.report(self.root, t)
+        self.assertIn(f"Plan {art}", text)
+        self.assertIn(f"| {ui}", text)
+        self.assertIn("test:pass", text)
+        self.assertIn("app/src/features/settings/Clear.tsx", text)
+        self.assertIn("DEC-0001", text)
+        self.assertIn(f"Còn 1 task chưa xong: {doc}[pending]", text)
+        self.assertEqual(cli(self.root, "report", t)[0], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

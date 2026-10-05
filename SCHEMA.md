@@ -7,7 +7,7 @@ truyền nhau ID. Quyết định nền tảng D1–D8 do Dung chốt 2026-10-05
 
 | Vai trò | Hiện thực | Đọc | Ghi |
 |---|---|---|---|
-| A Orchestrator | Phiên Claude Code chính + lệnh /plan /run /review /next /handoff | brief, `orc show --meta`, `orc next` (chỉ metadata — D3) | chỉ qua `orc` |
+| A Orchestrator | Phiên Claude Code chính + lệnh /auto (trọn vòng) hoặc /plan /run /review /next /handoff | brief, `orc show --meta`, `orc next` (chỉ metadata — D3) | chỉ qua `orc` |
 | B Researcher | subagent `researcher` | task, plan cũ, code, tài liệu | thân file ART được cấp |
 | C Coder | subagent `coder` (owner `coder`, `coder-1`, …) | task + acceptance, context | file trong `write_scope` |
 | D Reviewer | subagent `reviewer` | `orc show TASK --pack` (acceptance + outputs + evidence) | thân file ART review_report |
@@ -92,6 +92,14 @@ failure_class: null     # chỉ reviewer
 Coder trả file ngoài `write_scope` → orc từ chối cả envelope, không ghi gì.
 `orc next`: `pending` có blocked_by đều `done` → `ready`; `blocked` (không needs_user) hết chặn → `resume_status`.
 
+## 6b. Chế độ tự chạy `/auto` (Dung yêu cầu 2026-10-05)
+
+Một lệnh chạy trọn: researcher (ý tưởng → thiết kế → plan) → `orc gate` → tự accept plan → vòng
+coder/reviewer theo `orc next` + `ROUTE:` → commit nhánh `orchestra/<ROOT>` (không merge/push) → handoff →
+trả `orc report`. Chỉ dừng khi: `orc gate` = ASK, `HỎI DUNG`, envelope bị từ chối 2 lần, lỗi môi trường.
+Researcher tự chọn mặc định hợp lý và ghi "Giả định: ..."; chỉ ghi vào `## Cần Dung quyết` điều đụng quy tắc
+nghiệp vụ, data model, kiến trúc, phạm vi mơ hồ hoặc không đảo ngược được.
+
 ## 7. Phiên và handoff (D5)
 
 - Hook **SessionStart** nạp `orc brief` (≤ 6000 ký tự ≈ 1.5k token) kèm khoá phiên Claude (`session_id`).
@@ -117,6 +125,8 @@ Coder trả file ngoài `write_scope` → orc từ chối cả envelope, không 
 | `orc next` | thăng hạng task, in READY/REVIEW/HỎI DUNG/NEXT |
 | `orc apply FILE|-` | nạp envelope, định tuyến, in `ROUTE:` (thêm ngoài đặc tả: cần để giữ D4) |
 | `orc handoff open|check` | mở/kiểm handoff phiên |
+| `orc gate ART-x` | plan tự chạy tiếp được không: `PROCEED`, hoặc `ASK` + lý do (thoát mã 3): mục `## Cần Dung quyết` có câu hỏi, quyết định proposed của task/plan, thiếu AC hoặc orc-tasks, plan còn nguyên mẫu |
+| `orc report TASK-x` | báo cáo tất định cho một yêu cầu: plan, bảng task, bằng chứng, review, quyết định, kết luận |
 | `orc validate [--handoff] [--key K]` | từ chối: frontmatter sai, ID trùng, summary > 200, tham chiếu ID không tồn tại, enum sai, file mồ côi |
 
 ## 9. Cú pháp Claude Code đã kiểm (2026-10-05)

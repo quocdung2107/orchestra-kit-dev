@@ -9,6 +9,19 @@
    không mở `D:\WMS\app`, để `CLAUDE.md` và `.orchestra/` được dùng đúng.
 3. Mở terminal trong VS Code, gõ `orc next`. Thấy chữ `NEXT:` là PATH đã đúng.
 
+## Cách nhanh: một lệnh `/auto` (khuyên dùng)
+
+1. Bấm **New session** trong Claude Code.
+2. Gõ: `/auto <mô tả yêu cầu>`, ví dụ `/auto B2: chặn nạp file Excel/CSV lớn hơn 20 MB, báo lỗi dễ hiểu`.
+3. Claude tự làm hết: ý tưởng → thiết kế → plan → code → review → commit vào nhánh `orchestra/TASK-x`
+   trong `app/` (không merge, không push) → trả **một báo cáo** (bảng task, bằng chứng, giả định đã tự chọn,
+   việc anh/chị cần thử tay).
+4. Claude chỉ dừng hỏi khi plan đụng quy tắc nghiệp vụ / data model / kiến trúc, yêu cầu quá mơ hồ,
+   reviewer báo xung đột quyết định, hoặc sửa quá 2 lần chưa đạt. Trả lời một từ là Claude chạy tiếp.
+5. Đọc báo cáo, thử tay, rồi bảo Claude "merge và push".
+
+## Cách từng bước (khi muốn kiểm soát từng khâu)
+
 ## Mỗi yêu cầu = 1 phiên mới (D5)
 
 1. Trong khung Claude Code bấm **New session** (phiên mới).
@@ -34,7 +47,8 @@ Yêu cầu tiếp theo: **bấm New session lần nữa**, không làm tiếp tr
 
 | Lần | Gõ | Kiểm điều gì |
 |---|---|---|
-| 1 | `/plan B2: chặn file > 20 MB` → duyệt → `/run` → `/review` | Vòng bình thường với agent thật |
+| 1 | `/auto B2: chặn file > 20 MB` | Chạy trọn không dừng, nhận 1 báo cáo |
+| 1b | `/auto đổi trạng thái đơn hàng thành 4 bước` | Phải dừng hỏi (đụng quy tắc nghiệp vụ) |
 | 2 | Giữa chừng (sau `/run`) đóng VS Code, mở phiên mới, hỏi *"đang làm dở gì?"* | Liền mạch nhờ brief + handoff |
 | 3 | `/plan B3: nút xoá toàn bộ dữ liệu trên máy` | Plan có nhiều task, `blocked_by` |
 | 4 | Trong phiên đã `/plan`, cố kết thúc mà không `/handoff` | Hook Stop chặn |

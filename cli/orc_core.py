@@ -1033,6 +1033,102 @@ def brief_text(root: Path, key: str | None = None, max_chars: int = BRIEF_MAX_CH
     return text
 
 
+# ---------------------------------------------------------------- gate & report
+
+ASK_SECTION = "Cần Dung quyết"
+NOTHING_TO_ASK = {"không có", "không", "none", "-"}
+
+
+def plan_tasks_block(body: str):
+    m = re.search(r"```ya?ml orc-tasks\s*\n(.*?)```", body, re.S)
+    if not m:
+        return None
+    try:
+        specs = _yaml().safe_load(m.group(1)) or []
+    except Exception:
+        return None
+    return specs if isinstance(specs, list) else None
+
+
+def gate(root: Path, art_id: str) -> list:
+    """Plan có tự chạy tiếp được không. Trả danh sách lý do phải hỏi Dung (rỗng = đi tiếp)."""
+    _, _, art = find_entry(root, art_id)
+    if art.get("type") != "plan":
+        raise OrcError(f"{art_id} không phải plan")
+    _, body = split_frontmatter(read_text(content_path(root, art_id)))
+    reasons = []
+    asks = section_body(body, ASK_SECTION)
+    if asks is None:
+        reasons.append(f"plan thiếu mục '## {ASK_SECTION}'")
+    else:
+        lines = [l.strip() for l in re.sub(r"<!--.*?-->", "", asks, flags=re.S).splitlines()]
+        lines = [l for l in lines if l and l.lstrip("-* ").strip().lower().rstrip(".") not in NOTHING_TO_ASK]
+        reasons += [f"plan hỏi: {l.lstrip('-* ').strip()}" for l in lines]
+    specs = plan_tasks_block(body)
+    if not specs:
+        reasons.append("plan không có khối orc-tasks hợp lệ")
+    elif any(not isinstance(t, dict) or str(t.get("title", "")).strip() in ("", "...")
+             for t in specs):
+        reasons.append("plan còn task mẫu chưa điền (title '...')")
+    if re.search(r"^\s*-\s*AC-1:\s*\.\.\.\s*$", body, re.M):
+        reasons.append("plan còn tiêu chí mẫu chưa điền (AC-1: ...)")
+    if not re.search(r"^\s*[-*]?\s*(?:\*\*)?AC-\d+\b", body, re.M):
+        reasons.append("plan không có tiêu chí chấp nhận AC-n")
+    scopes = {art_id, art.get("task")}
+    for d in load_registry(root, "decision"):
+        if d.get("status") == "proposed" and d.get("scope") in scopes:
+            reasons.append(f"quyết định chờ duyệt {d['id']}: {_short(d['summary'], 160)}")
+    return reasons
+
+
+def report(root: Path, task_id: str) -> str:
+    """Báo cáo tất định cho một yêu cầu: task gốc, plan, task con, review, evidence, quyết định."""
+    _, _, root_task = find_entry(root, task_id)
+    arts = load_registry(root, "artifact")
+    tasks = load_registry(root, "task")
+    evidence = {e["id"]: e for e in load_registry(root, "evidence")}
+    plans = [a for a in arts if a.get("type") == "plan" and a.get("task") == task_id]
+    plan_ids = {a["id"] for a in plans}
+    kids = [t for t in tasks if plan_ids & set(as_list(t.get("inputs"))) and t["id"] != task_id]
+    # task sinh ra khi định tuyến (replan, sửa regression) trỏ inputs tới task con
+    kid_ids = {t["id"] for t in kids}
+    kids += [t for t in tasks if t["id"] not in kid_ids and kid_ids & set(as_list(t.get("inputs")))]
+    out = [f"# Báo cáo {task_id}: {root_task['title']}", ""]
+    for a in plans:
+        out.append(f"- Plan {a['id']} v{a['version']} [{a['status']}]: {a['summary']}")
+    out += ["", "## Task", "| Task | Trạng thái | Lần | Kết quả |", "|---|---|---|---|"]
+    for t in kids:
+        flag = f" ⚠ {t['failure_class']}" if t.get("failure_class") else ""
+        ask = " **cần Dung**" if t.get("needs_user") else ""
+        out.append(f"| {t['id']} {_short(t['title'], 60)} | {t['status']}{flag}{ask} | "
+                   f"{t.get('attempts', 0)} | {_short(t.get('summary'), 140)} |")
+    out += ["", "## Bằng chứng"]
+    for t in kids:
+        evs = [evidence[o] for o in as_list(t.get("outputs")) if o in evidence]
+        if evs:
+            res = ", ".join(f"{e['kind']}:{e['result']}" for e in evs)
+            out.append(f"- {t['id']}: {res}")
+        reviews = [a for a in arts if a.get("task") == t["id"] and a.get("type") == "review_report"]
+        for r in reviews:
+            out.append(f"  - review {r['id']} [{r['status']}] `{(r.get('paths') or [''])[0]}`")
+        files = [o for o in as_list(t.get("outputs")) if not is_id(o)]
+        if files:
+            out.append("  - file: " + ", ".join(f"`{f}`" for f in files))
+    scopes = {task_id} | plan_ids | {t["id"] for t in kids}
+    decs = [d for d in load_registry(root, "decision") if d.get("scope") in scopes]
+    if decs:
+        out += ["", "## Quyết định"]
+        out += [f"- {d['id']} [{d['status']}]: {d['summary']}" for d in decs]
+    ask = [t for t in kids if t.get("needs_user")]
+    open_ = [t for t in kids if t["status"] != "done"]
+    out += ["", "## Kết luận",
+            ("Xong toàn bộ task." if not open_ else
+             f"Còn {len(open_)} task chưa xong: " + ", ".join(f"{t['id']}[{t['status']}]" for t in open_))]
+    if ask:
+        out.append("Cần Dung quyết: " + ", ".join(t["id"] for t in ask))
+    return "\n".join(out) + "\n"
+
+
 # ---------------------------------------------------------------- CLI
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1090,6 +1186,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--request", default="")
     s.add_argument("--sid")
 
+    s = sub.add_parser("gate", help="plan tự chạy tiếp được không (exit 3 = phải hỏi Dung)")
+    s.add_argument("id")
+
+    s = sub.add_parser("report", help="báo cáo cho một yêu cầu (TASK gốc)")
+    s.add_argument("id")
+
     s = sub.add_parser("validate", help="kiểm tra toàn bộ .orchestra/")
     s.add_argument("--handoff", action="store_true", help="kiểm cả handoff phiên đang mở")
     s.add_argument("--key")
@@ -1134,6 +1236,14 @@ def run(argv=None) -> int:
             if args.key:
                 close_marker(root, args.key)
             print(f"{sid}: handoff hợp lệ")
+    elif args.cmd == "gate":
+        reasons = gate(root, args.id)
+        if reasons:
+            print("ASK\n- " + "\n- ".join(reasons))
+            return 3
+        print("PROCEED")
+    elif args.cmd == "report":
+        sys.stdout.write(report(root, args.id))
     elif args.cmd == "validate":
         errs = validate(root)
         if args.handoff:

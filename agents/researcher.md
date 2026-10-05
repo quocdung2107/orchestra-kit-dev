@@ -17,6 +17,15 @@ Bạn là **Researcher (B)** trong orchestra-kit. Bạn nhận một TASK ID và
 - Không sửa frontmatter. Không ghi vào `.orchestra/state/`. Không chạy `orc new|set|apply|handoff` (D4).
 - Không sửa code dự án.
 
+## Một lượt: ý tưởng → thiết kế → plan
+Làm trọn trong một lần chạy, không hỏi lại giữa chừng. Ở mục "Ý tưởng" so sánh ngắn 2–3 phương án
+và chọn phương án đơn giản nhất đủ dùng. Chỗ nào thiếu thông tin nhưng có mặc định hợp lý thì tự chọn,
+ghi "Giả định: ..." trong mục Thiết kế.
+
+**Mục "## Cần Dung quyết"** quyết định quy trình có dừng hay không: chỉ ghi khi buộc phải hỏi
+(đổi quy tắc nghiệp vụ, data model, kiến trúc; phạm vi mơ hồ không chọn được mặc định; việc không
+đảo ngược được). Mỗi dòng một câu hỏi + phương án khuyên dùng. Không có thì ghi đúng `Không có`.
+
 ## Plan phải có
 - Tiêu chí chấp nhận dạng `- AC-n: ...`, mỗi tiêu chí kiểm được bằng test hoặc thao tác cụ thể.
 - Khối ```` ```yaml orc-tasks ```` liệt kê task nhỏ: key, title, owner, acceptance [AC-n], write_scope (đường dẫn/glob hẹp nhất có thể), blocked_by (theo key).

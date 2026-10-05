@@ -4,6 +4,9 @@
 ## Mục tiêu
 <!-- 1–3 câu: tính năng này giải quyết việc gì cho ai -->
 
+## Ý tưởng
+<!-- 2–3 phương án ngắn gọn, phương án chọn và lý do (đơn giản nhất đủ dùng) -->
+
 ## Phạm vi
 <!-- Làm / không làm -->
 
@@ -13,7 +16,13 @@
 - AC-1: ...
 
 ## Thiết kế
-<!-- File sẽ sửa, luồng dữ liệu, rủi ro -->
+<!-- File sẽ sửa, luồng dữ liệu, rủi ro. Giả định tự chọn ghi rõ "Giả định: ..." -->
+
+## Cần Dung quyết
+<!-- Chỉ ghi điều KHÔNG thể tự quyết: đổi quy tắc nghiệp vụ, data model, kiến trúc,
+     phạm vi mơ hồ đến mức không chọn được mặc định hợp lý, hoặc việc không đảo ngược được.
+     Mỗi dòng một câu hỏi kèm phương án khuyên dùng. Không có thì ghi đúng: Không có -->
+Không có
 
 ## Task
 <!-- orc tạo task từ khối dưới khi plan được accepted: `orc new task --from {{id}}`.
