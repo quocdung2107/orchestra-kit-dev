@@ -32,6 +32,7 @@ class TestInstall(unittest.TestCase):
             self.assertEqual(len(s["hooks"]["SessionStart"]), 1)
             self.assertEqual(len(s["hooks"]["Stop"]), 2)  # hook cũ + hook kit
             self.assertIn("stop_check", s["hooks"]["Stop"][1]["hooks"][0]["command"])
+            self.assertEqual(s["permissions"]["allow"], ["Bash(orc *)"])  # không nhân đôi
             self.assertTrue((cd / "agents" / "coder.md").is_file())
             self.assertTrue((cd / "commands" / "plan.md").is_file())
             self.assertTrue(list(cd.glob("settings.json.bak-orchestra-*")))

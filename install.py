@@ -25,6 +25,7 @@ from pathlib import Path
 
 KIT = Path(__file__).resolve().parent
 MARK = "orchestra-kit/hooks/"
+ORC_PERMISSION = "Bash(orc *)"
 
 
 def posix(p: Path) -> str:
@@ -77,6 +78,10 @@ def merge_hooks(settings: dict, python: str) -> dict:
                   if not any(MARK in str(h.get("command", "")) for h in g.get("hooks", []))]
         groups.append(hook_entry(python, name))
         hooks[event] = groups
+    # Cho phép chạy `orc` không cần xác nhận mỗi lần (Dung đồng ý 2026-10-05)
+    allow = settings.setdefault("permissions", {}).setdefault("allow", [])
+    if ORC_PERMISSION not in allow:
+        allow.append(ORC_PERMISSION)
     return settings
 
 
