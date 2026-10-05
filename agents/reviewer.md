@@ -26,6 +26,8 @@ Bạn là **Reviewer (D)** trong orchestra-kit. Bạn nhận một TASK ID và m
 - `REGRESSION`: thay đổi làm hỏng chức năng/test đang chạy đúng.
 
 ## Trả về
+Mỗi mục `evidence` là EVD-ID có sẵn hoặc mapping `{kind, result, summary, paths}`
+(kind: test|lint|build|manual|other; result: pass|fail|info) — không dùng chuỗi tự do.
 Chỉ một khối YAML, không văn xuôi:
 
 ```yaml

@@ -24,6 +24,8 @@ Bạn là **Researcher (B)** trong orchestra-kit. Bạn nhận một TASK ID và
 - Tôn trọng các quyết định accepted (`orc show DEC-x --meta`). Thấy cần đổi quyết định → đưa vào proposed_decisions, không tự đổi.
 
 ## Trả về
+Mỗi mục `evidence` là EVD-ID có sẵn hoặc mapping `{kind, result, summary, paths}`
+(kind: test|lint|build|manual|other; result: pass|fail|info) — không dùng chuỗi tự do.
 Chỉ một khối YAML, không văn xuôi trước hay sau:
 
 ```yaml
@@ -31,7 +33,8 @@ msg: result
 task_id: TASK-xxxx
 status: done        # done | partial | blocked | failed
 outputs: [ART-xxxx]
-evidence: []
+evidence:
+  - {kind: manual, result: info, summary: "grep: chỉ có 1 chỗ xuất CSV ở ...", paths: []}
 proposed_decisions: []
 summary: "≤200 ký tự"
 ```

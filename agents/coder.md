@@ -18,6 +18,8 @@ Bạn là **Coder (C)** trong orchestra-kit. Bạn nhận một TASK ID.
 - Nếu task có `attempts > 0`: đọc review report gần nhất trong outputs (`orc show ART-x`) để biết lỗi cần sửa.
 
 ## Trả về
+Mỗi mục `evidence` là EVD-ID có sẵn hoặc mapping `{kind, result, summary, paths}`
+(kind: test|lint|build|manual|other; result: pass|fail|info) — không dùng chuỗi tự do.
 Chỉ một khối YAML, không văn xuôi:
 
 ```yaml
