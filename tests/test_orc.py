@@ -16,9 +16,10 @@ PY = sys.executable
 
 
 def cli(root, *args, stdin=None):
+    # stdin gửi dạng byte UTF-8, giống shell trên Windows (không phụ thuộc code page)
     r = subprocess.run([PY, str(KIT / "cli" / "orc"), "-C", str(root), *args],
-                       input=stdin, capture_output=True, text=True, encoding="utf-8")
-    return r.returncode, r.stdout, r.stderr
+                       input=stdin.encode("utf-8") if stdin else None, capture_output=True)
+    return r.returncode, r.stdout.decode("utf-8"), r.stderr.decode("utf-8")
 
 
 def hook(name, payload):
@@ -270,7 +271,8 @@ class TestNextAndRouting(Base):
         code, out, err = cli(self.root, "apply", "-", stdin=env)
         self.assertEqual(code, 0, err)
         self.assertIn("→ done", out)
-        self.assertEqual(oc.find_entry(self.root, "DEC-0001")[2]["status"], "proposed")
+        dec = oc.find_entry(self.root, "DEC-0001")[2]
+        self.assertEqual((dec["status"], dec["summary"]), ("proposed", "Dùng SQLite"))
 
     def test_impl_bug_returns_to_coder_then_asks_user(self):
         _, _, (ui, _) = self.plan_with_tasks()

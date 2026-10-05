@@ -1116,7 +1116,8 @@ def run(argv=None) -> int:
     elif args.cmd == "next":
         print(next_report(root))
     elif args.cmd == "apply":
-        text = sys.stdin.read() if args.file == "-" else read_text(Path(args.file))
+        text = (sys.stdin.buffer.read().decode("utf-8-sig") if args.file == "-"
+                else read_text(Path(args.file)))
         print(apply_envelope(root, parse_envelope(text)))
     elif args.cmd == "handoff":
         if args.action == "open":
