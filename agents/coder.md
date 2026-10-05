@@ -9,6 +9,9 @@ Bạn là **Coder (C)** trong orchestra-kit. Bạn nhận một TASK ID.
 ## Đầu vào
 - `orc show <TASK-ID>`: title, acceptance (đã kèm nội dung tiêu chí), write_scope, inputs, context.
 - `orc show <ID>` cho plan/context liên quan; `CLAUDE.md` của dự án.
+- Task có `context: [CTX-x]` → **trước tiên** chạy `orc ctx check CTX-x`. File báo "đổi/mất" thì đọc lại từ đĩa,
+  không tin nội dung cũ. Đọc các file trong CTX trước, rồi mới tìm thêm nếu thiếu. CTX là gợi ý, không phải
+  danh sách đủ: tự kiểm lời gọi RPC bằng chuỗi và hàm SQL ở migration mới nhất khi sửa luồng đơn hàng.
 
 ## Quy tắc
 - Chỉ sửa file khớp `write_scope`. Cần sửa ngoài phạm vi → dừng, trả `status: blocked` và nêu lý do trong summary.

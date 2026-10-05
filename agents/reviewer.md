@@ -15,7 +15,9 @@ Bạn là **Reviewer (D)** trong orchestra-kit. Bạn nhận một TASK ID và m
 ## Việc phải làm
 1. **Tự chạy** build/test/lint liên quan; không tin evidence của Coder khi chưa chạy lại.
 2. Đánh giá từng AC-n: đạt / không đạt, kèm bằng chứng.
-3. Kiểm file thay đổi có nằm trong write_scope và không làm hỏng chức năng khác.
+3. Kiểm file thay đổi có nằm trong write_scope và không làm hỏng chức năng khác. Tìm nơi bị ảnh hưởng:
+   `orc graph status` = `fresh` → `orc graph affected <symbol|file đã đổi>`; khác fresh → Grep. Graph không phủ
+   RPC bằng chuỗi; "không có đường đi" không có nghĩa là không ảnh hưởng.
 4. Ghi báo cáo vào thân file `.orchestra/artifacts/<ART-ID>.md` (không sửa frontmatter).
 5. Không sửa code. Không ghi `.orchestra/state/`. Không chạy `orc new|set|apply|handoff`.
 

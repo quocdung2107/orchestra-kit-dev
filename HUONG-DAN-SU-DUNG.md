@@ -70,3 +70,11 @@ Yêu cầu tiếp theo: **bấm New session lần nữa**, không làm tiếp tr
 - Đầu phiên không có brief → kiểm `~/.claude/settings.json` có mục `hooks` chứa `orchestra-kit/hooks/`.
 - Không thấy agent `researcher/coder/reviewer` → gõ `/agents`; nếu thiếu, kiểm `~/.claude/agents` còn trỏ tới kit.
 - Hook Stop chặn mãi → mở `.orchestra/sessions/S-x.md`, điền đủ 5 mục, `result: done|partial|blocked`.
+
+## Graph code (tuỳ chọn, đã bật cho D:\WMS)
+
+- Graph giúp Context Builder chọn đúng file cho coder; **không có graph Orchestra vẫn chạy** (dùng tìm kiếm thường).
+- Xem trạng thái: `orc graph status` (`fresh` mới được tin; `stale` = code đã đổi). `/auto` tự cập nhật khi cần.
+- Dựng lại bằng tay: `orc graph update` (vài giây). Lỗi thì kệ, workflow không dừng.
+- Máy mới: `python install.py --with-graphify` rồi thêm mục `graph:` vào `.orchestra/config.yaml` (xem SCHEMA.md mục 10).
+- Graph không thấy được lời gọi `rpc('...')` sang hàm SQL — luồng đơn hàng vẫn phải kiểm migration.

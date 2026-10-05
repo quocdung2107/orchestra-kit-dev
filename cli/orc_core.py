@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import fnmatch
+import hashlib
 import json
 import re
 import sys
@@ -42,6 +43,9 @@ ART_STATUS = ("draft", "accepted", "rejected")
 DEC_STATUS = ("proposed", "accepted", "superseded")
 EVD_KINDS = ("test", "lint", "build", "manual", "other")
 EVD_RESULTS = ("pass", "fail", "info")
+CTX_SOURCES = ("manual", "graph", "fallback")
+GRAPH_STATES = ("none", "fresh", "stale", "degraded", "locked", "unavailable")
+CTX_MAX_FILES = 12
 FAILURE_CLASSES = ("IMPL_BUG", "SPEC_GAP", "DECISION_CONFLICT", "REGRESSION")
 ENV_STATUS = ("done", "partial", "blocked", "failed")
 HANDOFF_RESULTS = ("done", "partial", "blocked")
@@ -66,7 +70,8 @@ FIELDS = {
     },
     "decision": {"id": None, "status": "proposed", "scope": "project",
                  "summary": "", "supersedes": None},
-    "context": {"id": None, "task": None, "summary": "", "paths": []},
+    "context": {"id": None, "task": None, "summary": "", "paths": [],
+                "source": "manual", "graph_state": "none", "fingerprint": None, "truncated": False},
     "evidence": {"id": None, "task": None, "kind": "test", "result": "info",
                  "summary": "", "paths": []},
 }
@@ -259,7 +264,8 @@ def cmd_init(root: Path, project_id: str, goal: str) -> list:
     for kind in KINDS:
         save_registry(root, kind, [])
         created.append(registry_path(root, kind))
-    write_text(o / ".gitignore", "# Dấu phiên đang mở của hook, không commit\nruntime/\n")
+    write_text(o / ".gitignore",
+               "# Dấu phiên đang mở của hook và cache graph, không commit\nruntime/\ncache/\n")
     created.append(o / ".gitignore")
     km = o / "knowledge" / "KNOWLEDGE_MAP.md"
     if not km.exists():
@@ -534,6 +540,15 @@ def entry_errors(root: Path, kind: str, e: dict, extra_ids=frozenset()) -> list:
             errs.append(f"{label}: thiếu scope")
     elif kind == "context":
         ref(e.get("task"), "task", "task")
+        if e.get("source") not in CTX_SOURCES:
+            errs.append(f"{label}: source '{e.get('source')}' không hợp lệ")
+        if e.get("graph_state") not in GRAPH_STATES:
+            errs.append(f"{label}: graph_state '{e.get('graph_state')}' không hợp lệ")
+        if not isinstance(e.get("truncated"), bool):
+            errs.append(f"{label}: truncated phải là true/false")
+        fp = e.get("fingerprint")
+        if fp is not None and not (isinstance(fp, dict) and isinstance(fp.get("files"), dict)):
+            errs.append(f"{label}: fingerprint phải có dạng {{graph, files}}")
     elif kind == "evidence":
         ref(e.get("task"), "task", "task")
         if e.get("kind") not in EVD_KINDS:
@@ -1026,6 +1041,9 @@ def brief_text(root: Path, key: str | None = None, max_chars: int = BRIEF_MAX_CH
     if proposed:
         out.append("\n## Quyết định chờ Dung duyệt")
         out += [f"- {d['id']} ({d['scope']}): {_short(d['summary'], 160)}" for d in proposed[-8:]]
+    graph_line = graph_brief_line(root)
+    if graph_line:
+        out.append(graph_line)
     out.append("\nLệnh: `orc next`, `orc show <ID> --meta`, /plan /run /review /next /handoff")
     text = "\n".join(out)
     if len(text) > max_chars:
@@ -1154,6 +1172,122 @@ def report(root: Path, task_id: str) -> str:
     return "\n".join(out) + "\n"
 
 
+# ---------------------------------------------------------------- graph & context
+
+def graph_adapter(root: Path):
+    """Adapter theo mục `graph:` của config.yaml. Import muộn, không phụ thuộc engine (D8)."""
+    from graph_adapter import GraphAdapter  # noqa: PLC0415 - cùng thư mục cli/
+    return GraphAdapter(root, load_config(root).get("graph"))
+
+
+def graph_brief_line(root: Path) -> str:
+    """Một dòng trạng thái graph cho brief. Không bao giờ làm hỏng brief."""
+    try:
+        if not load_config(root).get("graph"):
+            return ""
+        st = graph_adapter(root).status()
+    except Exception as exc:  # graph chỉ là accelerator
+        return f"Graph: lỗi đọc trạng thái ({_short(exc, 80)}) — dùng fallback"
+    extra = ""
+    if st["state"] == "stale":
+        extra = f", {len(st['changed'])} file đổi → `orc graph update`"
+    elif st["problems"]:
+        extra = f" — {_short(st['problems'][0], 100)}"
+    return f"Graph: {st['state']} ({st['files']} file, {st['nodes']} node){extra}"
+
+
+def _ctx_block(root: Path, ctx_id: str) -> dict:
+    _, body = split_frontmatter(read_text(content_path(root, ctx_id)))
+    m = re.search(r"```ya?ml orc-context\s*\n(.*?)```", body, re.S)
+    if not m:
+        raise OrcError(f"{ctx_id}: thiếu khối ```yaml orc-context")
+    data = _yaml().safe_load(m.group(1)) or {}
+    if not isinstance(data, dict) or not isinstance(data.get("files"), list):
+        raise OrcError(f"{ctx_id}: orc-context cần 'files' là danh sách")
+    return data
+
+
+def ctx_seal(root: Path, ctx_id: str) -> dict:
+    """Đăng ký metadata CTX do Context Builder viết: nguồn, trạng thái graph, hash từng file (D4)."""
+    if kind_of(ctx_id) != "context":
+        raise OrcError(f"{ctx_id} không phải CTX")
+    data = _ctx_block(root, ctx_id)
+    source = data.get("source")
+    if source not in ("graph", "fallback"):
+        raise OrcError(f"{ctx_id}: source phải là graph|fallback")
+    budget = int((load_config(root).get("graph") or {}).get("max_files", CTX_MAX_FILES))
+    files, hashes = [], {}
+    for item in data["files"]:
+        if not isinstance(item, dict) or not item.get("path") or not item.get("reason"):
+            raise OrcError(f"{ctx_id}: mỗi file cần path và reason")
+        rel = str(item["path"]).replace("\\", "/")
+        full = root / rel
+        if not full.is_file():
+            raise OrcError(f"{ctx_id}: không có file {rel}")
+        files.append(rel)
+        hashes[rel] = hashlib.md5(full.read_bytes()).hexdigest()
+    if not files:
+        raise OrcError(f"{ctx_id}: chưa chọn file nào")
+    if len(files) > budget:
+        raise OrcError(f"{ctx_id}: {len(files)} file vượt budget {budget}")
+    graph_state, graph_fp = "none", None
+    try:
+        if load_config(root).get("graph"):
+            st = graph_adapter(root).status()
+            graph_state, graph_fp = st["state"], st["fingerprint"]
+    except Exception:  # noqa: BLE001 - graph lỗi không chặn CTX
+        graph_state = "unavailable"
+    if source == "graph" and graph_state != "fresh":
+        raise OrcError(f"{ctx_id}: source=graph nhưng graph đang {graph_state}; "
+                       "cập nhật graph hoặc ghi source: fallback")
+    return set_fields(root, ctx_id, {
+        "source": source, "graph_state": graph_state, "paths": files,
+        "truncated": bool(data.get("truncated", False)),
+        "fingerprint": {"graph": graph_fp, "files": hashes}})
+
+
+def ctx_check(root: Path, ctx_id: str) -> list:
+    """File nào trong CTX đã đổi/mất kể từ lúc seal (chống dùng context cũ — F5)."""
+    _, _, e = find_entry(root, ctx_id)
+    fp = e.get("fingerprint") or {}
+    if not fp.get("files"):
+        raise OrcError(f"{ctx_id} chưa seal (`orc ctx seal {ctx_id}`)")
+    changed = []
+    for rel, digest in fp["files"].items():
+        full = root / rel
+        if not full.is_file():
+            changed.append(f"{rel} (mất)")
+        elif hashlib.md5(full.read_bytes()).hexdigest() != digest:
+            changed.append(f"{rel} (đổi)")
+    return changed
+
+
+def _graph_cmd(root: Path, a) -> int:
+    from graph_adapter import GraphError  # noqa: PLC0415
+    ad = graph_adapter(root)
+    try:
+        if a.action == "status":
+            res = ad.status()
+        elif a.action == "update":
+            res = ad.update(force=a.force)
+        elif a.action == "query":
+            res = ad.query(a.args, limit=a.limit)
+        elif a.action == "affected":
+            res = ad.affected(" ".join(a.args), depth=a.depth, limit=a.limit)
+        elif a.action == "explain":
+            res = ad.explain(" ".join(a.args), limit=a.limit)
+        else:
+            if len(a.args) != 2:
+                raise OrcError("orc graph path A B")
+            res = ad.path(a.args[0], a.args[1])
+    except GraphError as exc:
+        print(dump_yaml({"state": "unavailable", "authoritative": False, "error": str(exc),
+                         "hint": "Dùng fallback; graph không bắt buộc."}))
+        return 4
+    print(dump_yaml(res), end="")
+    return 0
+
+
 # ---------------------------------------------------------------- CLI
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1220,6 +1354,17 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("ask", help="trích phần hiểu yêu cầu + câu hỏi của ART research cho Dung")
     s.add_argument("id")
 
+    s = sub.add_parser("graph", help="graph code (tuỳ chọn): status|update|query|affected|explain|path")
+    s.add_argument("action", choices=("status", "update", "query", "affected", "explain", "path"))
+    s.add_argument("args", nargs="*")
+    s.add_argument("--force", action="store_true")
+    s.add_argument("--limit", type=int)
+    s.add_argument("--depth", type=int, default=2)
+
+    s = sub.add_parser("ctx", help="context: seal|check CTX-x")
+    s.add_argument("action", choices=("seal", "check"))
+    s.add_argument("id")
+
     s = sub.add_parser("validate", help="kiểm tra toàn bộ .orchestra/")
     s.add_argument("--handoff", action="store_true", help="kiểm cả handoff phiên đang mở")
     s.add_argument("--key")
@@ -1274,6 +1419,19 @@ def run(argv=None) -> int:
         sys.stdout.write(report(root, args.id))
     elif args.cmd == "ask":
         sys.stdout.write(ask_text(root, args.id))
+    elif args.cmd == "graph":
+        return _graph_cmd(root, args)
+    elif args.cmd == "ctx":
+        if args.action == "seal":
+            e = ctx_seal(root, args.id)
+            print(f"{args.id}: {e['source']}, graph {e['graph_state']}, {len(e['paths'])} file"
+                  + (", truncated" if e["truncated"] else ""))
+        else:
+            changed = ctx_check(root, args.id)
+            if changed:
+                print("CTX CŨ — đọc lại các file này từ đĩa:\n- " + "\n- ".join(changed))
+                return 5
+            print(f"{args.id}: các file trong context chưa đổi")
     elif args.cmd == "validate":
         errs = validate(root)
         if args.handoff:

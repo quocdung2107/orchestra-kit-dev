@@ -33,10 +33,17 @@ Không báo tiến độ từng bước; chỉ nói với Dung ở điểm dừn
    `ASK` → **điểm dừng** (báo các dòng sau `ASK`).
 3. Lặp đến khi `orc next` không còn `READY:`/`REVIEW:` của yêu cầu này:
    - `HỎI DUNG` → **điểm dừng**.
-   - `REVIEW: <T>` → `orc new artifact --type review_report --task <T>` → R; reviewer:
-     `TASK: <T>. Báo cáo vào <R>. Dùng orc show <T> --pack. Trả envelope YAML.` → `orc apply -`.
-   - `READY: <T>` → `orc set <T> status=dispatched`; owner coder → coder: `TASK: <T>. Trả envelope YAML.`;
-     owner researcher (replan) → `orc new artifact --type plan --task <T> --supersedes <plan cũ>` rồi researcher → `orc apply -`.
+   - `REVIEW: <T>` → `orc graph update` (bỏ qua nếu lỗi) → `orc new artifact --type review_report --task <T>` → R;
+     reviewer: `TASK: <T>. Báo cáo vào <R>. Dùng orc show <T> --pack. Trả envelope YAML.` → `orc apply -`.
+   - `READY: <T>` owner coder → **context trước**:
+     1. `orc graph update` — tuỳ chọn; lỗi/không cấu hình (mã 4) thì bỏ qua, **không bao giờ dừng vì graph**.
+     2. `orc new context --task <T> --summary "Context cho <T>"` → CTX; subagent **context-builder**:
+        `TASK: <T>. Viết context vào <CTX>. Trả envelope YAML.`
+     3. `orc ctx seal <CTX>`; lỗi → gửi nguyên văn cho context-builder sửa (tối đa 2 lần); vẫn lỗi thì bỏ CTX, chạy tiếp.
+     4. Seal được → `orc set <T> context=[<CTX>]`.
+     Rồi `orc set <T> status=dispatched`; coder: `TASK: <T>. Trả envelope YAML.` → `orc apply -`.
+   - `READY: <T>` owner researcher (replan) → `orc set <T> status=dispatched`,
+     `orc new artifact --type plan --task <T> --supersedes <plan cũ>` rồi researcher → `orc apply -`.
    - `orc` từ chối envelope → gửi nguyên văn lỗi cho subagent đó sửa, tối đa 2 lần, rồi **điểm dừng**.
 4. Kết thúc:
    - Code trong `app/` (repo riêng): nhánh `orchestra/<ROOT>`, commit; **không merge, không push**. Commit `.orchestra/` trong `D:\WMS`.

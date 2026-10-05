@@ -11,7 +11,7 @@ truyền nhau ID. Quyết định nền tảng D1–D8 do Dung chốt 2026-10-05
 | B Researcher | subagent `researcher` | task, plan cũ, code, tài liệu | thân file ART được cấp |
 | C Coder | subagent `coder` (owner `coder`, `coder-1`, …) | task + acceptance, context | file trong `write_scope` |
 | D Reviewer | subagent `reviewer` | `orc show TASK --pack` (acceptance + outputs + evidence) | thân file ART review_report |
-| Context Builder | subagent `context-builder` — **placeholder (D7)** | — | — |
+| Context Builder | subagent `context-builder` (bật từ DEC-0004) | task, plan, KNOWLEDGE_MAP, `orc graph ...` | thân file CTX được cấp |
 
 Single writer (D4): chỉ `orc` ghi `.orchestra/state/`. B/C/D trả **envelope YAML**; A nạp bằng `orc apply -`.
 
@@ -145,7 +145,46 @@ Nguồn: code.claude.com/docs/en/hooks, /sub-agents, /slash-commands; Claude Cod
 - Subagent: `~/.claude/agents/*.md`, frontmatter `name, description, tools, model…`; chỉ câu trả lời cuối của subagent về phiên chính.
 - Lệnh: `~/.claude/commands/*.md` vẫn dùng được (đã gộp vào skills); frontmatter `description, argument-hint, allowed-tools, disable-model-invocation`; `$ARGUMENTS`.
 
-## 10. Giai đoạn sau (D7, chỉ khung)
+## 10. Graph & Context Builder (DEC-0003..0005, sửa D7 ngày 2026-10-05)
 
-Context Builder tự động · Graphify dựng KNOWLEDGE_MAP · nhiều Coder song song bằng git worktree
-(frontmatter subagent có `isolation: worktree`, chưa dùng).
+**Graph là accelerator tuỳ chọn.** Chưa cấu hình / chưa cài / chưa dựng / lỗi ⇒ Orchestra chạy như cũ (fallback).
+
+- **Graph Adapter** `cli/graph_adapter.py` (stdlib): `is_available, status, update, query, affected, explain, path`.
+  Engine hiện tại: Graphify, gọi `<venv>\python -m graphify extract <root> --code-only --out <cache>`; không
+  `graphify install`, không hook, không `graphify update` (ghi vào thư mục nguồn). Đọc graph do adapter tự làm trên
+  `graph.json` ⇒ đổi engine chỉ thay phần build/load.
+- **Cài**: `python install.py --with-graphify` ⇒ venv `%LOCALAPPDATA%\orchestra-kit\graphify-venv`, `graphifyy[sql]==0.9.76`.
+- **Bật cho dự án** — `config.yaml`:
+  ```yaml
+  graph:
+    engine: graphify
+    max_files: 12        # budget CTX
+    max_results: 40
+    hub_degree: 25       # symbol có > 25 cạnh phụ thuộc không được mở rộng
+    roots:               # dựng riêng từng root, tránh .gitignore loại thư mục (F1)
+      - {path: app, include: [src, tests]}
+      - {path: supabase/migrations}
+  ```
+- **Cache** `.orchestra/cache/graph/` (gitignore; không commit raw graph; không có GRAPH_REPORT ở phase 1).
+- **Trạng thái** `none|fresh|stale|degraded|locked|unavailable`; chỉ `fresh` là `authoritative`.
+  Freshness = MD5 từng file trong include so với manifest (không mtime, không git). Sửa docs/.orchestra không làm stale.
+  `degraded` khi: engine bỏ sót file (F1), có .sql mà không có node SQL (F2), khác phiên bản ghim.
+- **An toàn đọc**: hàm SQL định nghĩa lại ⇒ chỉ bản ở migration mới nhất, bản cũ có `superseded_by` (F3);
+  graph không phủ RPC bằng chuỗi TS → SQL ⇒ "không có đường đi" ≠ "không phụ thuộc" (F4); lock file khi update,
+  đọc khi đang khoá ⇒ `locked` ⇒ fallback (F6); không lưu ID community (F7).
+- **CTX** (`contexts.yaml`): thêm `source (manual|graph|fallback)`, `graph_state`, `fingerprint {graph, files: {path: md5}}`,
+  `truncated`. Context Builder viết thân CTX (khối ```` ```yaml orc-context ```` + Graph evidence + Vùng rủi ro +
+  Giới hạn context); A chạy `orc ctx seal` (orc ghi registry, D4). `source: graph` bị từ chối nếu graph không fresh.
+  Coder chạy `orc ctx check CTX-x` trước khi dùng (F5: file đổi sau khi dựng context).
+
+| Lệnh | Việc |
+|---|---|
+| `orc graph status` | trạng thái + file đổi + vấn đề (A chỉ đọc lệnh này, D3) |
+| `orc graph update [--force]` | dựng lại khi code/SQL đổi; fresh thì không chạy engine; lỗi ⇒ mã 4 |
+| `orc graph query T...` / `affected X` / `explain X` / `path A B` | kết quả kèm `state`, `authoritative`, `truncated` |
+| `orc ctx seal CTX-x` / `orc ctx check CTX-x` | đăng ký CTX / báo file đã đổi (mã 5) |
+
+## 11. Giai đoạn sau (D7 còn lại)
+
+Nhiều Coder song song bằng git worktree (frontmatter subagent có `isolation: worktree`, chưa dùng) ·
+docs/PDF vào graph (cần LLM) · GRAPH_REPORT như Orchestra artifact.

@@ -120,8 +120,27 @@ def add_to_path(dry: bool) -> str:
     return f"thêm {cli} vào PATH của user (mở lại VS Code/terminal để có hiệu lực)"
 
 
+def install_graphify(python: str, dry: bool) -> str:
+    """Tuỳ chọn: venv riêng cho Graphify, bản ghim. Không chạy `graphify install`, không cài hook (DEC-0003)."""
+    sys.path.insert(0, str(KIT / "cli"))
+    import graph_adapter  # noqa: PLC0415
+    venv_py = graph_adapter.default_python()
+    venv = venv_py.parent.parent
+    pkg = f"graphifyy[sql]=={graph_adapter.PINNED_VERSION}"
+    if dry:
+        return f"[dry-run] sẽ tạo venv {venv} và cài {pkg}"
+    if not venv_py.exists():
+        subprocess.run([python, "-m", "venv", str(venv)], check=True)
+    subprocess.run([str(venv_py), "-m", "pip", "install", "-q", pkg], check=True)
+    out = subprocess.run([str(venv_py), "-m", "graphify", "--version"], capture_output=True,
+                         text=True, check=True).stdout.strip()
+    return f"graphify sẵn sàng ở {venv} ({out}). Bật cho dự án: thêm mục graph vào .orchestra/config.yaml"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Cài orchestra-kit")
+    ap.add_argument("--with-graphify", action="store_true",
+                    help="tạo venv riêng và cài graphifyy[sql] bản ghim (tuỳ chọn)")
     ap.add_argument("--claude-dir", default=str(Path.home() / ".claude"))
     ap.add_argument("--python", default=sys.executable)
     ap.add_argument("--dry-run", action="store_true")
@@ -143,6 +162,8 @@ def main(argv=None) -> int:
     print(install_hooks(claude_dir, a.python, a.dry_run))
     if not a.no_path:
         print(add_to_path(a.dry_run))
+    if a.with_graphify:
+        print(install_graphify(a.python, a.dry_run))
     return 0
 
 

@@ -13,7 +13,11 @@ Chỉ đọc metadata; không đọc code/plan (D3). Mọi ghi trạng thái qua
 2. `orc next`. Không chỉ định task → lấy task ở dòng `NEXT:`. Task chỉ định phải ở trạng thái ready.
    Có dòng `HỎI DUNG` liên quan → dừng và hỏi Dung.
 3. `orc show <TASK-ID> --meta` để biết owner.
-   - owner `coder*` → subagent **coder**, prompt: `TASK: <TASK-ID>. Trả envelope YAML.`
+   - owner `coder*` → context trước (giống /auto chặng 2): `orc graph update` (lỗi thì bỏ qua) →
+     `orc new context --task <TASK-ID> --summary "Context cho <TASK-ID>"` → subagent **context-builder**
+     (`TASK: <TASK-ID>. Viết context vào <CTX>. Trả envelope YAML.`) → `orc ctx seal <CTX>` →
+     `orc set <TASK-ID> context=[<CTX>]`. Lỗi ở bước nào cũng bỏ CTX và chạy tiếp, không dừng vì graph.
+     Rồi subagent **coder**, prompt: `TASK: <TASK-ID>. Trả envelope YAML.`
    - owner `researcher` → `orc new artifact --type plan --task <TASK-ID> [--supersedes <ART plan cũ trong inputs>]`,
      rồi subagent **researcher**, prompt: `TASK: <TASK-ID>. Viết plan vào <ART-ID>. Trả envelope YAML.`
 4. Trước khi gọi: `orc set <TASK-ID> status=dispatched`.
