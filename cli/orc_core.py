@@ -15,6 +15,7 @@ import datetime as _dt
 import fnmatch
 import hashlib
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -1276,6 +1277,10 @@ def _graph_cmd(root: Path, a) -> int:
             res = ad.affected(" ".join(a.args), depth=a.depth, limit=a.limit)
         elif a.action == "explain":
             res = ad.explain(" ".join(a.args), limit=a.limit)
+        elif a.action == "view":
+            res = ad.view()
+            if a.open and res["pages"] and hasattr(os, "startfile"):
+                os.startfile(res["pages"][0])  # noqa: S606 - mở file HTML cục bộ
         else:
             if len(a.args) != 2:
                 raise OrcError("orc graph path A B")
@@ -1355,11 +1360,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
 
     s = sub.add_parser("graph", help="graph code (tuỳ chọn): status|update|query|affected|explain|path")
-    s.add_argument("action", choices=("status", "update", "query", "affected", "explain", "path"))
+    s.add_argument("action", choices=("status", "update", "query", "affected", "explain", "path", "view"))
     s.add_argument("args", nargs="*")
     s.add_argument("--force", action="store_true")
     s.add_argument("--limit", type=int)
     s.add_argument("--depth", type=int, default=2)
+    s.add_argument("--open", action="store_true", help="view: mở bản đồ trong trình duyệt")
 
     s = sub.add_parser("ctx", help="context: seal|check CTX-x")
     s.add_argument("action", choices=("seal", "check"))

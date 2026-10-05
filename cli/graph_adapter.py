@@ -275,6 +275,29 @@ class GraphAdapter:
             after = self.status()
         return after
 
+    # ------------------------------------------------------------ xem
+
+    def view(self) -> dict:
+        """Xuất bản đồ HTML (mạng node + cây thư mục) cho từng root vào cache. Chỉ để người xem."""
+        st = self.status()
+        if st["state"] in ("none", "locked"):
+            raise GraphError(f"graph đang {st['state']}; chạy `orc graph update` trước")
+        pages = []
+        for r in self.roots:
+            gdir = self._engine_dir(r)
+            graph = gdir / "graph.json"
+            if not graph.exists():
+                continue
+            tree = gdir / "GRAPH_TREE.html"
+            for args in (["export", "html", "--graph", str(graph)],
+                         ["tree", "--graph", str(graph), "--output", str(tree), "--label", r["path"]]):
+                res = self._run(args, timeout=120)
+                if res.returncode != 0:
+                    raise GraphError(f"xuất bản đồ {r['path']} lỗi: {(res.stderr or res.stdout).strip()[-200:]}")
+            pages += [str(gdir / "graph.html"), str(tree)]
+        return {"state": st["state"], "pages": pages,
+                "note": "Mở bằng trình duyệt (cần mạng để tải thư viện vẽ). File nằm trong cache, không commit."}
+
     # ------------------------------------------------------------ đọc graph
 
     def _load(self):

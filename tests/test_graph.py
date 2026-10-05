@@ -62,6 +62,13 @@ class FakeEngine:
         self.calls.append(args)
         if args[0] == "--version":
             return subprocess.CompletedProcess(cmd, 0, f"graphify {self.version}\n", "")
+        if args[0] in ("export", "tree"):
+            if "--output" in args:
+                out = Path(args[args.index("--output") + 1])
+            else:
+                out = Path(args[args.index("--graph") + 1]).parent / "graph.html"
+            out.write_text("<html></html>", encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
         if self.fail:
             return subprocess.CompletedProcess(cmd, 1, "", "boom\n")
         src, out = Path(args[1]), Path(args[args.index("--out") + 1]) / "graphify-out"
@@ -218,6 +225,12 @@ class TestReads(Base):
         exp = self.ad.explain("public.create_order()")
         old = [r for r in exp["results"] if r["file"] == "db/001_init.sql"]
         self.assertEqual(old[0]["superseded_by"], "db/002_fields.sql")
+
+    def test_view_exports_pages_per_root(self):
+        res = self.ad.view()
+        self.assertEqual(len(res["pages"]), 4)
+        self.assertTrue(all(Path(p).exists() for p in res["pages"]))
+        self.assertTrue(all(".orchestra" in p for p in res["pages"]))
 
     def test_path_and_no_path_note(self):
         res = self.ad.path("csv.test.ts", "exportFile()")
