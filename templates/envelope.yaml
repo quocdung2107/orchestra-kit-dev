@@ -1,0 +1,9 @@
+# Envelope kết quả của subagent: chỉ YAML, không văn xuôi.
+msg: result
+task_id: TASK-0001
+status: done            # done | partial | blocked | failed
+outputs: []             # ID (ART-x) hoặc đường dẫn file tương đối gốc dự án
+evidence: []            # EVD-x có sẵn, hoặc {kind, result, summary, paths}
+proposed_decisions: []  # chuỗi tóm tắt, hoặc {summary, scope, supersedes}
+summary: ""             # ≤ 200 ký tự
+failure_class: null     # chỉ reviewer: IMPL_BUG | SPEC_GAP | DECISION_CONFLICT | REGRESSION
