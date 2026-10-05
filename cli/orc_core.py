@@ -1377,8 +1377,11 @@ def docs_check(root: Path) -> tuple:
         for s in as_list(fm.get("supersedes")):
             if not (root / str(s)).exists():
                 errs.append(f"{rel}: supersedes {s} không tồn tại")
-        if fm.get("status") == "archived":
+        if fm.get("status") in ("archived", "superseded"):
             archived.add(rel)
+        if fm.get("status") in ("archived", "superseded") and not rel.startswith("docs/archive/"):
+            errs.append(f"{rel}: status {fm.get('status')} phải nằm trong docs/archive/ "
+                        "(nội dung lỗi thời gom một nơi)")
     for p in _walk_text_files(root):
         rel = p.relative_to(root).as_posix()
         try:

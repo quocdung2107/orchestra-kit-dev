@@ -80,6 +80,14 @@ class TestDocs(unittest.TestCase):
         self.assertTrue(any("status 'draft'" in e for e in errs))
         self.assertTrue(any("summary > 200" in e for e in errs))
 
+    def test_check_requires_superseded_inside_archive(self):
+        doc(self.root, "docs/features/routing/cu.md", status="superseded")
+        doc(self.root, "docs/archive/superseded/cu2.md", status="superseded")
+        oc.docs_index(self.root)
+        errs, _ = oc.docs_check(self.root)
+        self.assertTrue(any("features/routing/cu.md: status superseded" in e for e in errs))
+        self.assertFalse(any("cu2.md" in e for e in errs))
+
     def test_check_finds_broken_path_in_code_comment(self):
         oc.docs_index(self.root)
         oc.write_text(self.root / "backend/store.py", "# xem docs/plans-open/routing.md\nx = 1\n")
