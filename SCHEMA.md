@@ -13,7 +13,7 @@ truyền nhau ID. Quyết định nền tảng D1–D8 do Dung chốt 2026-10-05
 | D Reviewer | subagent `reviewer` | `orc show TASK --pack` (acceptance + outputs + evidence) | thân file ART review_report |
 | Context Builder | subagent `context-builder` (bật từ DEC-0004) | task, plan, KNOWLEDGE_MAP, `orc graph ...` | thân file CTX được cấp |
 
-Single writer (D4): chỉ `orc` ghi `.orchestra/state/`. B/C/D trả **envelope YAML**; A nạp bằng `orc apply -`.
+Single writer (D4): chỉ `orc` ghi `.orchestra/state/`. Lệnh ghi giữ khoá `runtime/state.lock`, ghi file nguyên tử (tmp + rename); mọi đổi `status` ghi `state/journal.jsonl` (chuỗi hash, `orc validate` kiểm) — v0.2 phase 1. B/C/D trả **envelope YAML**; A nạp bằng `orc apply -`.
 
 ## 2. ID
 
@@ -126,7 +126,8 @@ Hai chặng (Dung chốt lại 2026-10-05):
 | `orc init --project-id X --goal "..."` | tạo `.orchestra/`; tạo CLAUDE.md chỉ khi chưa có |
 | `orc brief [--key K]` | brief ≤ ~1.5k token |
 | `orc new task|artifact|decision|context|evidence ...` | tạo mục, in ID; `orc new task --from ART-x` tạo task từ khối ```` ```yaml orc-tasks ```` của plan đã accepted |
-| `orc set ID k=v ...` | sửa trường (giá trị đọc như YAML: `[a,b]`, `true`) |
+| `orc set ID k=v ...` | sửa trường (giá trị đọc như YAML: `[a,b]`, `true`); **không** đổi `status, level, attempts, failure_class, needs_user, resume_status, approved_*` (v0.2 phase 1, H1) |
+| `orc advance ID --to X` | đổi trạng thái theo bảng chuyển: TASK `pending/ready→dispatched` (blocked_by xong), `dispatched→ready`, `blocked(needs_user)/failed→ready`, researcher `done→dispatched`; ART `draft→accepted/rejected`; DEC `proposed→accepted` |
 | `orc show ID [--meta] [--pack]` | `--meta` cho A; `--pack` cho reviewer |
 | `orc next` | thăng hạng task, in READY/REVIEW/HỎI DUNG/NEXT |
 | `orc apply FILE|-` | nạp envelope, định tuyến, in `ROUTE:` (thêm ngoài đặc tả: cần để giữ D4) |

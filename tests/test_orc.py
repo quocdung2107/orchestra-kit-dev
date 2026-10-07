@@ -192,7 +192,10 @@ class TestSetShow(Base):
     def test_set_artifact_syncs_frontmatter(self):
         t = oc.new_task(self.root, title="x")["id"]
         art = oc.new_artifact(self.root, "plan", t, summary="s")["id"]
-        code, _, err = cli(self.root, "set", art, "status=accepted", "summary=mới")
+        # Phase 1 (H1): status chỉ đổi qua `orc advance`; `orc set` vẫn sửa trường thường
+        code, _, err = cli(self.root, "advance", art, "--to", "accepted")
+        self.assertEqual(code, 0, err)
+        code, _, err = cli(self.root, "set", art, "summary=mới")
         self.assertEqual(code, 0, err)
         fm, _ = oc.split_frontmatter(oc.content_path(self.root, art).read_text(encoding="utf-8"))
         self.assertEqual((fm["status"], fm["summary"]), ("accepted", "mới"))

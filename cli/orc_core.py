@@ -11,6 +11,7 @@ no-op ở thư mục không có .orchestra/ ngay cả khi máy chưa cài PyYAML
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as _dt
 import fnmatch
 import hashlib
@@ -18,6 +19,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 KIT_DIR = Path(__file__).resolve().parent.parent
@@ -57,6 +59,18 @@ SUMMARY_MAX = 200
 MAX_ATTEMPTS = 2          # attempts > 2 → hỏi người dùng
 MAX_STOP_BLOCKS = 3       # chống vòng lặp vô hạn ở hook Stop
 BRIEF_MAX_CHARS = 6000    # ~1.5k token
+LOCK_WAIT = 10.0          # giây chờ khoá state (H5)
+LOCK_STALE = 120.0        # khoá cũ hơn thế coi là bị bỏ rơi (process chết)
+JOURNAL_FILE = "journal.jsonl"
+# Trường trạng thái: `orc set` không được đổi; chỉ `orc advance` / `orc apply` / `orc next` (H1, K3)
+STATE_FIELDS = ("status", "level", "attempts", "failure_class", "needs_user", "resume_status")
+# Chuyển trạng thái bằng tay của 0.1.0 qua `orc advance` (state machine K thay ở Phase 4)
+ADVANCE_MOVES = {
+    "task": {("pending", "dispatched"), ("ready", "dispatched"), ("dispatched", "ready"),
+             ("blocked", "ready"), ("failed", "ready"), ("done", "dispatched")},
+    "artifact": {("draft", "accepted"), ("draft", "rejected")},
+    "decision": {("proposed", "accepted")},
+}
 
 FIELDS = {
     "task": {
@@ -123,9 +137,120 @@ def read_text(path: Path) -> str:
 
 
 def write_text(path: Path, text: str) -> None:
+    """Ghi nguyên tử: file tạm cùng thư mục rồi os.replace (H5). Lỗi giữa chừng giữ nguyên file cũ."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        for i in range(50):  # Windows: đích đang được process khác mở để đọc
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if i == 49:
+                    raise
+                time.sleep(0.02)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+@contextlib.contextmanager
+def state_lock(root: Path):
+    """Khoá liên tiến trình cho lệnh ghi state (H5). Không lồng nhau; giữ ở mức lệnh CLI."""
+    path = orc(root) / "runtime" / "state.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + LOCK_WAIT
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                age = time.time() - path.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            if age > LOCK_STALE:
+                with contextlib.suppress(FileNotFoundError):
+                    path.unlink()
+                continue
+            if time.monotonic() > deadline:
+                raise OrcError(f"state đang bị khoá bởi lệnh orc khác ({path.name}); thử lại sau") from None
+            time.sleep(0.05)
+            continue
+        os.write(fd, f"{os.getpid()} {_dt.datetime.now().isoformat(timespec='seconds')}\n".encode())
+        os.close(fd)
+        break
+    try:
+        yield
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            path.unlink()
+
+
+# ---------------------------------------------------------------- journal (K3)
+
+_JOURNAL = {"actor": "api", "evidence": []}
+
+
+@contextlib.contextmanager
+def journal_context(actor: str | None = None, evidence=None):
+    """Đặt actor/evidence cho các dòng journal ghi trong khối này."""
+    old = dict(_JOURNAL)
+    if actor is not None:
+        _JOURNAL["actor"] = actor
+    if evidence is not None:
+        _JOURNAL["evidence"] = list(evidence)
+    try:
+        yield
+    finally:
+        _JOURNAL.update(old)
+
+
+def journal_path(root: Path) -> Path:
+    return orc(root) / "state" / JOURNAL_FILE
+
+
+def _line_hash(line: str) -> str:
+    return hashlib.sha256(line.encode("utf-8")).hexdigest()
+
+
+def append_journal(root: Path, rows: list) -> None:
+    """Thêm dòng chuyển trạng thái; mỗi dòng mang sha256 của dòng trước (phát hiện sửa tay)."""
+    if not rows:
+        return
+    path = journal_path(root)
+    text = read_text(path) if path.exists() else ""
+    lines = [l for l in text.splitlines() if l.strip()]
+    prev = _line_hash(lines[-1]) if lines else "0" * 64
+    ts = _dt.datetime.now().isoformat(timespec="seconds")
+    for r in rows:
+        line = json.dumps({"ts": ts, **r, "actor": _JOURNAL["actor"],
+                           "evidence": _JOURNAL["evidence"], "prev": prev},
+                          ensure_ascii=False, sort_keys=True)
+        lines.append(line)
+        prev = _line_hash(line)
+    write_text(path, "\n".join(lines) + "\n")
+
+
+def journal_errors(root: Path) -> list:
+    path = journal_path(root)
+    if not path.exists():
+        return []
+    errs, prev = [], "0" * 64
+    for n, line in enumerate((l for l in read_text(path).splitlines() if l.strip()), 1):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            errs.append(f"{JOURNAL_FILE}:{n}: không phải JSON")
+            prev = _line_hash(line)
+            continue
+        if not isinstance(row, dict) or row.get("prev") != prev:
+            errs.append(f"{JOURNAL_FILE}:{n}: chuỗi hash gãy (dòng trước bị sửa/xoá?)")
+        prev = _line_hash(line)
+    return errs
 
 
 def dump_yaml(data) -> str:
@@ -157,7 +282,19 @@ REGISTRY_HEADER = "# Registry do `orc` quản lý. Không sửa tay (D4: single 
 
 
 def save_registry(root: Path, kind: str, items: list) -> None:
+    """Ghi registry; mọi thay đổi `status` (kể cả mục mới) vào journal — một chỗ duy nhất."""
+    old = {}
+    if "status" in FIELDS[kind]:
+        try:
+            old = {e.get("id"): e.get("status") for e in load_registry(root, kind) if isinstance(e, dict)}
+        except Exception:  # registry hỏng: vẫn ghi được, journal coi như mục mới
+            old = {}
     write_text(registry_path(root, kind), REGISTRY_HEADER + dump_yaml(items or []))
+    if "status" in FIELDS[kind]:
+        append_journal(root, [
+            {"id": e.get("id"), "from": old.get(e.get("id")), "to": e.get("status")}
+            for e in items or [] if isinstance(e, dict)
+            and (e.get("id") not in old or old[e.get("id")] != e.get("status"))])
 
 
 def split_frontmatter(text: str):
@@ -373,7 +510,7 @@ def tasks_from_plan(root: Path, art_id: str) -> list:
     if art.get("type") != "plan":
         raise OrcError(f"{art_id} không phải plan")
     if art.get("status") != "accepted":
-        raise OrcError(f"{art_id} chưa accepted; Dung duyệt rồi `orc set {art_id} status=accepted`")
+        raise OrcError(f"{art_id} chưa accepted; Dung duyệt rồi `orc advance {art_id} --to accepted`")
     _, body = split_frontmatter(read_text(content_path(root, art_id)))
     m = re.search(r"```ya?ml orc-tasks\s*\n(.*?)```", body, re.S)
     if not m:
@@ -420,7 +557,44 @@ def parse_assignments(pairs) -> dict:
     return out
 
 
+def guarded_set(root: Path, id_: str, changes: dict) -> dict:
+    """`orc set` cho LLM: không đổi trường trạng thái (H1, K3)."""
+    bad = sorted(k for k in changes if k in STATE_FIELDS or k.startswith("approved_"))
+    if bad and kind_of(id_) != "session":
+        raise OrcError(f"`orc set` không đổi được {bad}; trạng thái chỉ đổi qua "
+                       f"`orc advance {id_} --to <trạng thái>` hoặc `orc apply`")
+    return set_fields(root, id_, changes)
+
+
+def advance(root: Path, id_: str, to: str) -> dict:
+    """Chuyển trạng thái bằng tay theo bảng ADVANCE_MOVES (của 0.1.0)."""
+    kind = kind_of(id_)
+    if kind not in ADVANCE_MOVES:
+        raise OrcError(f"{id_}: {kind} không có trạng thái để advance")
+    _, _, e = find_entry(root, id_)
+    frm = e.get("status")
+    if (frm, to) not in ADVANCE_MOVES[kind]:
+        allowed = sorted(t for f, t in ADVANCE_MOVES[kind] if f == frm)
+        raise OrcError(f"{id_}: không chuyển được {frm} → {to}"
+                       + (f" (được: {', '.join(allowed)})" if allowed else " (không có chuyển tay nào)"))
+    changes = {"status": to}
+    if kind == "task":
+        if to == "dispatched":
+            status = {t["id"]: t.get("status") for t in load_registry(root, "task")}
+            waiting = [b for b in as_list(e.get("blocked_by")) if status.get(b) != "done"]
+            if waiting:
+                raise OrcError(f"{id_}: còn chờ {', '.join(waiting)}")
+            if frm == "done" and agent_for(e.get("owner")) == "coder":
+                raise OrcError(f"{id_}: task coder đã done không giao lại được; tạo task mới")
+        if frm in ("blocked", "failed"):
+            if frm == "blocked" and not e.get("needs_user"):
+                raise OrcError(f"{id_}: đang chờ blocked_by, không phải chờ Dung; dùng `orc next`")
+            changes.update(needs_user=False, resume_status=None)
+    return set_fields(root, id_, changes)
+
+
 def set_fields(root: Path, id_: str, changes: dict) -> dict:
+    """Ghi trường không kiểm luật chuyển trạng thái — dùng nội bộ; CLI dùng guarded_set/advance."""
     if "id" in changes:
         raise OrcError("Không đổi được id")
     kind = kind_of(id_)
@@ -644,6 +818,7 @@ def validate(root: Path) -> list:
                     errs.append(f"{p.stem}: có file nhưng không có trong registry")
     for p in (orc(root) / "sessions").glob("S-*.md"):
         errs.extend(session_errors(root, p, require_complete=False))
+    errs.extend(journal_errors(root))
     return errs
 
 
@@ -937,7 +1112,8 @@ def apply_envelope(root: Path, env: dict) -> str:
             task.update(status="blocked", resume_status="in_review",
                         blocked_by=task["blocked_by"] + [fix["id"]])
             route = f"CHẶN MERGE {tid}; {fix['id']} → coder"
-    _replace_entry(root, "task", task)
+    with journal_context(evidence=evd_ids):
+        _replace_entry(root, "task", task)
     extra = []
     if evd_ids:
         extra.append("evidence " + ",".join(evd_ids))
@@ -1488,6 +1664,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     s.add_argument("pairs", nargs="+")
 
+    s = sub.add_parser("advance", help="chuyển trạng thái theo luật: orc advance ID --to X")
+    s.add_argument("id")
+    s.add_argument("--to", required=True)
+
     s = sub.add_parser("show", help="xem một ID")
     s.add_argument("id")
     s.add_argument("--meta", action="store_true", help="chỉ metadata (cho Orchestrator)")
@@ -1557,13 +1737,26 @@ def run(argv=None) -> int:
         print(f"OK ({len(docs_files(droot))} tài liệu, {len(warns)} cảnh báo)")
         return 0
     root = require_root(start)
+    lock = (state_lock(root) if args.cmd in MUTATING else contextlib.nullcontext())
+    with lock, journal_context(actor=f"orc {args.cmd}"):
+        return _run(root, args)
+
+
+# Lệnh ghi state/registry: chạy trong khoá (H5)
+MUTATING = {"new", "set", "advance", "apply", "next", "handoff", "ctx"}
+
+
+def _run(root: Path, args) -> int:
     if args.cmd == "brief":
         print(brief_text(root, key=args.key))
     elif args.cmd == "new":
         print(_cmd_new(root, args))
     elif args.cmd == "set":
-        set_fields(root, args.id, parse_assignments(args.pairs))
+        guarded_set(root, args.id, parse_assignments(args.pairs))
         print(f"đã cập nhật {args.id}")
+    elif args.cmd == "advance":
+        e = advance(root, args.id, args.to)
+        print(f"{args.id} → {e['status']}")
     elif args.cmd == "show":
         sys.stdout.write(show(root, args.id, meta=args.meta, pack=args.pack))
     elif args.cmd == "next":
