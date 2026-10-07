@@ -129,6 +129,9 @@ Hai chặng (Dung chốt lại 2026-10-05):
 | `orc set ID k=v ...` | sửa trường (giá trị đọc như YAML: `[a,b]`, `true`); **không** đổi `status, level, attempts, failure_class, needs_user, resume_status, approved_*` (v0.2 phase 1, H1) |
 | `orc advance ID --to X` | đổi trạng thái theo bảng chuyển: TASK `pending/ready→dispatched` (blocked_by xong), `dispatched→ready`, `blocked(needs_user)/failed→ready`, researcher `done→dispatched`; ART `draft→accepted/rejected`; DEC `proposed→accepted` |
 | `orc show ID [--meta] [--pack]` | `--meta` cho A; `--pack` cho reviewer |
+| `orc approval request TASK` | (v0.2 phase 3) tính binding `task + plan_hash + write_scope_hash + level + risk_flags`, sinh nonce dùng một lần, in dòng Dung phải gõ `orc:approve TASK NONCE` |
+| `orc approve TASK` | ghi phê duyệt chỉ khi hook UserPromptSubmit đã ghi đúng dòng đó của Dung sau lúc yêu cầu, nonce chưa dùng, binding không đổi; `state/approvals.yaml` + journal |
+| `orc approval check TASK` | approval còn hiệu lực? plan/scope/level/risk đổi ⇒ hết (exit 3) |
 | `orc verify TASK` | V1/V2 tất định (v0.2 phase 2): so file đổi kể từ checkpoint (tạo khi `advance → dispatched` task coder, chụp cả mục `verify:` của config) với write_scope, quét risk_paths/bí mật, chạy `test/typecheck/lint/build` từ bản chụp (env bỏ biến kiểu secret, cwd trong dự án, timeout); tạo EVD `by: orc`, in `LỆCH` so với EVD tự khai; exit 6 = fail. Không đổi trạng thái task |
 | `orc next` | thăng hạng task, in READY/REVIEW/HỎI DUNG/NEXT |
 | `orc apply FILE|-` | nạp envelope, định tuyến, in `ROUTE:` (thêm ngoài đặc tả: cần để giữ D4) |
@@ -136,6 +139,15 @@ Hai chặng (Dung chốt lại 2026-10-05):
 | `orc gate ART-x` | plan tự chạy tiếp được không: `PROCEED`, hoặc `ASK` + lý do (thoát mã 3): mục `## Cần Dung quyết` có câu hỏi, quyết định proposed của task/plan, thiếu AC hoặc orc-tasks, plan còn nguyên mẫu |
 | `orc report TASK-x` | báo cáo tất định cho một yêu cầu: plan, bảng task, bằng chứng, review, quyết định, kết luận |
 | `orc validate [--handoff] [--key K]` | từ chối: frontmatter sai, ID trùng, summary > 200, tham chiếu ID không tồn tại, enum sai, file mồ côi |
+
+## 8b. Guard, phê duyệt, SAFE_MODE (v0.2 phase 3 — shadow)
+
+- Hook **UserPromptSubmit** `hooks/prompt_log` → `runtime/prompts.jsonl`: ts, session, sha256 lời Dung, nguyên văn chỉ
+  các dòng `orc:...`; chuỗi hash. Hook **PreToolUse** `hooks/guard` → `runtime/guard-shadow.jsonl` (shadow: luôn cho
+  qua). Guard đọc `runtime/active.json` (orc ghi mỗi lần lưu registry), không nạp YAML.
+- `orc advance <task coder> --to dispatched` thiếu approval hợp lệ ⇒ ghi `runtime/shadow.jsonl` (chưa chặn).
+- `ORC_SAFE_MODE=1` (Dung đặt trước khi mở VS Code): guard chỉ cho sửa kit + `.orchestra/config.yaml`; `orc` từ chối
+  lệnh đổi workflow; brief cảnh báo. Không có biến tắt guard.
 
 ## 9. Cú pháp Claude Code đã kiểm (2026-10-05)
 

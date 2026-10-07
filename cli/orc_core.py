@@ -65,7 +65,7 @@ LOCK_WAIT = 10.0          # giây chờ khoá state (H5)
 LOCK_STALE = 120.0        # khoá cũ hơn thế coi là bị bỏ rơi (process chết)
 JOURNAL_FILE = "journal.jsonl"
 # Trường trạng thái: `orc set` không được đổi; chỉ `orc advance` / `orc apply` / `orc next` (H1, K3)
-STATE_FIELDS = ("status", "level", "attempts", "failure_class", "needs_user", "resume_status")
+STATE_FIELDS = ("status", "level", "risk_flags", "attempts", "failure_class", "needs_user", "resume_status")
 # Chuyển trạng thái bằng tay của 0.1.0 qua `orc advance` (state machine K thay ở Phase 4)
 ADVANCE_MOVES = {
     "task": {("pending", "dispatched"), ("ready", "dispatched"), ("dispatched", "ready"),
@@ -80,6 +80,7 @@ FIELDS = {
         "blocked_by": [], "context": [], "inputs": [], "outputs": [],
         "acceptance": [], "write_scope": [], "attempts": 0, "summary": "",
         "failure_class": None, "needs_user": False, "resume_status": None,
+        "level": None, "risk_flags": [],
     },
     "artifact": {
         "id": None, "type": "plan", "task": None, "version": 1, "supersedes": None,
@@ -93,7 +94,7 @@ FIELDS = {
                  "summary": "", "paths": [], "by": "agent"},
 }
 # Trường thêm sau 0.1.0: mục cũ thiếu trường vẫn hợp lệ (giá trị mặc định ở FIELDS)
-OPTIONAL_FIELDS = {"evidence": {"by"}}
+OPTIONAL_FIELDS = {"evidence": {"by"}, "task": {"level", "risk_flags"}}  # level/risk_flags: triage (Phase 5)
 LIST_FIELDS = {k: {f for f, d in v.items() if isinstance(d, list)} for k, v in FIELDS.items()}
 SESSION_FIELDS = ("id", "task", "role", "result")
 
@@ -194,6 +195,17 @@ def state_lock(root: Path):
             path.unlink()
 
 
+def safe_mode() -> bool:
+    """ADJUSTMENTS #3: Dung đặt ORC_SAFE_MODE=1 trước khi mở VS Code để sửa lỗi Orchestra."""
+    return os.environ.get("ORC_SAFE_MODE", "").strip().lower() in ("1", "true", "on", "yes")
+
+
+# Lệnh đổi workflow/dự án: SAFE_MODE từ chối (cmd, action hoặc None = mọi action)
+SAFE_BLOCKED = {("new", None), ("set", None), ("advance", None), ("apply", None), ("next", None),
+                ("approve", None), ("verify", None), ("init", None), ("approval", "request"),
+                ("handoff", "open"), ("ctx", "seal"), ("docs", "index")}
+
+
 # ---------------------------------------------------------------- journal (K3)
 
 _JOURNAL = {"actor": "api", "evidence": [], "extra": {}}
@@ -239,6 +251,21 @@ def append_journal(root: Path, rows: list) -> None:
         lines.append(line)
         prev = _line_hash(line)
     write_text(path, "\n".join(lines) + "\n")
+
+
+def write_active(root: Path) -> None:
+    """`runtime/active.json` cho guard (JSON, không YAML — v0.2 W3): task đang chạy + scope + artifact của nó."""
+    tasks = load_registry(root, "task")
+    arts = load_registry(root, "artifact")
+    active = []
+    for t in tasks:
+        if isinstance(t, dict) and t.get("status") in ("dispatched", "in_review"):
+            active.append({"id": t["id"], "status": t["status"], "owner": t.get("owner"),
+                           "write_scope": as_list(t.get("write_scope")),
+                           "artifacts": [p for a in arts if isinstance(a, dict) and a.get("task") == t["id"]
+                                         for p in as_list(a.get("paths"))]})
+    write_text(orc(root) / "runtime" / "active.json",
+               json.dumps({"version": 1, "tasks": active}, ensure_ascii=False, indent=1) + "\n")
 
 
 def journal_errors(root: Path) -> list:
@@ -296,6 +323,8 @@ def save_registry(root: Path, kind: str, items: list) -> None:
         except Exception:  # registry hỏng: vẫn ghi được, journal coi như mục mới
             old = {}
     write_text(registry_path(root, kind), REGISTRY_HEADER + dump_yaml(items or []))
+    if kind in ("task", "artifact"):
+        write_active(root)
     if "status" in FIELDS[kind]:
         append_journal(root, [
             {"id": e.get("id"), "from": old.get(e.get("id")), "to": e.get("status")}
@@ -598,6 +627,10 @@ def advance(root: Path, id_: str, to: str) -> dict:
             changes.update(needs_user=False, resume_status=None)
         if to == "dispatched" and agent_for(e.get("owner")) == "coder":
             import orc_verify  # noqa: PLC0415 - cùng thư mục cli/
+            import orc_approval  # noqa: PLC0415
+            ok, why = orc_approval.check(root, id_)
+            if not ok:  # Phase 3: shadow — chỉ ghi, chưa chặn (Phase 4 bật)
+                orc_approval.shadow_log(root, {"event": "approval_missing", "task": id_, "reason": why})
             cp = orc_verify.make_checkpoint(root, id_)  # None: chưa cấu hình verify, hoặc đã có
             if cp:
                 with journal_context(extra={"checkpoint": cp}):
@@ -690,6 +723,8 @@ def entry_errors(root: Path, kind: str, e: dict, extra_ids=frozenset()) -> list:
             errs.append(f"{label}: attempts phải là số nguyên ≥ 0")
         if e.get("resume_status") not in (None, *TASK_STATUS):
             errs.append(f"{label}: resume_status không hợp lệ")
+        if e.get("level") not in (None, 0, 1, 2, 3):
+            errs.append(f"{label}: level phải là 0..3")
         for b in as_list(e.get("blocked_by")):
             ref(b, "blocked_by", "task")
             if b == eid:
@@ -951,6 +986,7 @@ def agent_for(owner: str) -> str:
 
 def next_report(root: Path) -> str:
     promoted = promote(root)
+    write_active(root)
     tasks = load_registry(root, "task")
     lines = []
     if promoted:
@@ -1199,6 +1235,9 @@ def brief_text(root: Path, key: str | None = None, max_chars: int = BRIEF_MAX_CH
     decisions = load_registry(root, "decision")
     out = [f"# Orchestra brief — {cfg.get('project_id')} (kit {cfg.get('kit_version')})",
            f"Mục tiêu: {_short(cfg.get('goal'), 300)}"]
+    if safe_mode():
+        out.append("⚠ ORC_SAFE_MODE đang bật: chỉ sửa kit và .orchestra/config.yaml; orc từ chối lệnh đổi "
+                   "workflow. Dung tắt biến này khi sửa xong.")
     m = open_marker(root, key)
     if m:
         out.append(f"Phiên này đang mở {m['sid']} (handoff bắt buộc trước khi dừng).")
@@ -1685,6 +1724,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     s.add_argument("--to", required=True)
 
+    s = sub.add_parser("approve", help="ghi phê duyệt khi Dung đã gõ `orc:approve TASK NONCE`")
+    s.add_argument("id")
+
+    s = sub.add_parser("approval", help="request: sinh nonce + dòng Dung phải gõ | check: còn hiệu lực?")
+    s.add_argument("action", choices=("request", "check"))
+    s.add_argument("id")
+
     s = sub.add_parser("verify", help="V1/V2 tất định: scope bằng git + lệnh kiểm từ checkpoint (exit 6 = fail)")
     s.add_argument("id")
 
@@ -1739,6 +1785,10 @@ def build_parser() -> argparse.ArgumentParser:
 def run(argv=None) -> int:
     args = build_parser().parse_args(argv)
     start = Path(args.cwd)
+    if safe_mode() and ((args.cmd, None) in SAFE_BLOCKED
+                        or (args.cmd, getattr(args, "action", None)) in SAFE_BLOCKED):
+        raise OrcError(f"ORC_SAFE_MODE: `orc {args.cmd}` đổi workflow/dự án, bị từ chối. "
+                       "Chỉ sửa kit/.orchestra/config.yaml; Dung tắt ORC_SAFE_MODE rồi chạy lại.")
     if args.cmd == "init":
         for path in cmd_init(start.resolve(), args.project_id, args.goal):
             print(f"tạo {path}")
@@ -1763,7 +1813,7 @@ def run(argv=None) -> int:
 
 
 # Lệnh ghi state/registry: chạy trong khoá (H5)
-MUTATING = {"new", "set", "advance", "apply", "next", "handoff", "ctx"}
+MUTATING = {"new", "set", "advance", "apply", "next", "handoff", "ctx", "approve", "approval"}
 # verify tự lấy khoá chỉ lúc ghi EVD: lệnh kiểm chạy lâu không được giữ khoá state
 
 
@@ -1778,6 +1828,18 @@ def _run(root: Path, args) -> int:
     elif args.cmd == "advance":
         e = advance(root, args.id, args.to)
         print(f"{args.id} → {e['status']}")
+    elif args.cmd == "approve":
+        import orc_approval  # noqa: PLC0415
+        req = orc_approval.approve(root, args.id)
+        print(f"{args.id}: đã duyệt (nonce {req['nonce']}, lời Dung {req['prompt_sha256'][:12]}…)")
+    elif args.cmd == "approval":
+        import orc_approval  # noqa: PLC0415
+        if args.action == "request":
+            print(orc_approval.request(root, args.id))
+        else:
+            ok, why = orc_approval.check(root, args.id)
+            print(("OK: " if ok else "KHÔNG: ") + why)
+            return 0 if ok else 3
     elif args.cmd == "verify":
         import orc_verify  # noqa: PLC0415
         res = orc_verify.verify(root, args.id)

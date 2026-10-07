@@ -54,3 +54,16 @@ Mỗi FINDING: vấn đề, bằng chứng, lựa chọn, đề xuất. Không t
   lỗi môi trường đã biết (không tìm thấy lệnh, bị chính sách chặn, timeout) — đúng nhãn I1 của v0.2, dùng ở bảng I2
   (ENV → RETRY ≤ 2 rồi ESCALATE).
 - **Đề xuất:** (b) làm cùng bảng I2 ở Phase 4, không làm trong Phase 2. Dung kiểm `npm run lint` trên máy.
+
+## FINDING-5 — Quay lui về 0.1.0 sau khi chạy thử v0.2 bị `orc validate` cũ từ chối (Phase 3)
+
+- **Vấn đề:** v0.2 thêm trường tuỳ chọn vào registry: task `level, risk_flags` (Phase 3, cho binding approval),
+  evidence `by` (Phase 2), và file mới (`state/journal.jsonl`, `state/approvals.yaml`, `state/checkpoints/`).
+  `orc validate` của 0.1.0 báo "trường lạ" với mọi task/EVD tạo bằng v0.2 ⇒ hook Stop của 0.1.0 chặn kết thúc phiên
+  (tối đa 3 lần) và validate không còn `OK`.
+- **Bằng chứng:** `cli/orc_core.py` 0.1.0 `entry_errors`: `unknown = [f for f in e if f not in FIELDS[kind]]`.
+- **Hệ quả:** nguyên tắc mục O "rollback từng phase: dự án đặt kit_version cũ" không tự đúng khi dữ liệu đã ghi bằng v0.2.
+- **Lựa chọn:** (a) script quay lui bỏ các trường/file mới (giữ bản sao); (b) chạy thử v0.2 trên **bản sao** dự án;
+  (c) chấp nhận: đã thử v0.2 thì không quay lui dữ liệu, chỉ quay lui kit.
+- **Đề xuất:** (a), gộp vào script chuyển registry của Phase 4 (v0.2 đã định giữ `state.v0.1/`). Trước khi Dung
+  chạy thử Phase 3 trên `D:\WMS`: commit `.orchestra/` để quay lui bằng git được.
