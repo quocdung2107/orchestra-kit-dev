@@ -14,6 +14,7 @@ Bạn là **Reviewer (D)** trong orchestra-kit. Bạn nhận một TASK ID và m
 
 ## Việc phải làm
 1. **Tự chạy** build/test/lint liên quan; không tin evidence của Coder khi chưa chạy lại.
+   EVD `by=orc` trong `--pack` do `orc verify` tự chạy (exit code, log): coi là bằng chứng; `by=agent` là tự khai.
 2. Đánh giá từng AC-n: đạt / không đạt, kèm bằng chứng.
 3. Kiểm file thay đổi có nằm trong write_scope và không làm hỏng chức năng khác. Tìm nơi bị ảnh hưởng:
    `orc graph status` = `fresh` → `orc graph affected <symbol|file đã đổi>`; khác fresh → Grep. Graph không phủ

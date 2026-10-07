@@ -33,7 +33,8 @@ Không báo tiến độ từng bước; chỉ nói với Dung ở điểm dừn
    `ASK` → **điểm dừng** (báo các dòng sau `ASK`).
 3. Lặp đến khi `orc next` không còn `READY:`/`REVIEW:` của yêu cầu này:
    - `HỎI DUNG` → **điểm dừng**.
-   - `REVIEW: <T>` → `orc graph update` (bỏ qua nếu lỗi) → `orc new artifact --type review_report --task <T>` → R;
+   - `REVIEW: <T>` → `orc verify <T>` (tạo EVD `by: orc`; exit 6 = fail, vẫn chuyển reviewer, ghi vào báo cáo; lỗi khác
+     = điểm dừng) → `orc graph update` (bỏ qua nếu lỗi) → `orc new artifact --type review_report --task <T>` → R;
      reviewer: `TASK: <T>. Báo cáo vào <R>. Dùng orc show <T> --pack. Trả envelope YAML.` → `orc apply -`.
    - `READY: <T>` owner coder → **context trước**:
      1. `orc graph update` — tuỳ chọn; lỗi/không cấu hình (mã 4) thì bỏ qua, **không bao giờ dừng vì graph**.

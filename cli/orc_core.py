@@ -44,7 +44,9 @@ OWNER_RE = re.compile(r"^(orchestrator|researcher|reviewer|coder(-\d+)?)$")
 ART_TYPES = ("plan", "research", "code_patch", "review_report")
 ART_STATUS = ("draft", "accepted", "rejected")
 DEC_STATUS = ("proposed", "accepted", "superseded")
-EVD_KINDS = ("test", "lint", "build", "manual", "other")
+EVD_KINDS = ("test", "lint", "build", "manual", "other", "typecheck", "scope")
+ORC_ONLY_KINDS = ("typecheck", "scope")   # chỉ `orc verify` tạo (v0.2 E, evidence boundary)
+EVD_BY = ("agent", "orc")
 EVD_RESULTS = ("pass", "fail", "info")
 CTX_SOURCES = ("manual", "graph", "fallback")
 GRAPH_STATES = ("none", "fresh", "stale", "degraded", "locked", "unavailable")
@@ -88,8 +90,10 @@ FIELDS = {
     "context": {"id": None, "task": None, "summary": "", "paths": [],
                 "source": "manual", "graph_state": "none", "fingerprint": None, "truncated": False},
     "evidence": {"id": None, "task": None, "kind": "test", "result": "info",
-                 "summary": "", "paths": []},
+                 "summary": "", "paths": [], "by": "agent"},
 }
+# Trường thêm sau 0.1.0: mục cũ thiếu trường vẫn hợp lệ (giá trị mặc định ở FIELDS)
+OPTIONAL_FIELDS = {"evidence": {"by"}}
 LIST_FIELDS = {k: {f for f, d in v.items() if isinstance(d, list)} for k, v in FIELDS.items()}
 SESSION_FIELDS = ("id", "task", "role", "result")
 
@@ -192,17 +196,19 @@ def state_lock(root: Path):
 
 # ---------------------------------------------------------------- journal (K3)
 
-_JOURNAL = {"actor": "api", "evidence": []}
+_JOURNAL = {"actor": "api", "evidence": [], "extra": {}}
 
 
 @contextlib.contextmanager
-def journal_context(actor: str | None = None, evidence=None):
-    """Đặt actor/evidence cho các dòng journal ghi trong khối này."""
+def journal_context(actor: str | None = None, evidence=None, extra=None):
+    """Đặt actor/evidence (và trường thêm, vd checkpoint) cho các dòng journal ghi trong khối này."""
     old = dict(_JOURNAL)
     if actor is not None:
         _JOURNAL["actor"] = actor
     if evidence is not None:
         _JOURNAL["evidence"] = list(evidence)
+    if extra is not None:
+        _JOURNAL["extra"] = dict(extra)
     try:
         yield
     finally:
@@ -227,7 +233,7 @@ def append_journal(root: Path, rows: list) -> None:
     prev = _line_hash(lines[-1]) if lines else "0" * 64
     ts = _dt.datetime.now().isoformat(timespec="seconds")
     for r in rows:
-        line = json.dumps({"ts": ts, **r, "actor": _JOURNAL["actor"],
+        line = json.dumps({"ts": ts, **_JOURNAL["extra"], **r, "actor": _JOURNAL["actor"],
                            "evidence": _JOURNAL["evidence"], "prev": prev},
                           ensure_ascii=False, sort_keys=True)
         lines.append(line)
@@ -491,9 +497,9 @@ def new_context(root: Path, task: str, summary: str, paths=None) -> dict:
 
 
 def new_evidence(root: Path, task: str, summary: str, kind: str = "test",
-                 result: str = "info", paths=None, with_file: bool = True) -> dict:
+                 result: str = "info", paths=None, with_file: bool = True, by: str = "agent") -> dict:
     entry = make_entry("evidence", task=task, summary=summary, kind=kind, result=result,
-                       paths=paths)
+                       paths=paths, by=by)
     entry = add_entry(root, "evidence", entry)
     if with_file:
         rel = f"{ORC_DIR}/evidence/{entry['id']}.md"
@@ -590,6 +596,12 @@ def advance(root: Path, id_: str, to: str) -> dict:
             if frm == "blocked" and not e.get("needs_user"):
                 raise OrcError(f"{id_}: đang chờ blocked_by, không phải chờ Dung; dùng `orc next`")
             changes.update(needs_user=False, resume_status=None)
+        if to == "dispatched" and agent_for(e.get("owner")) == "coder":
+            import orc_verify  # noqa: PLC0415 - cùng thư mục cli/
+            cp = orc_verify.make_checkpoint(root, id_)  # None: chưa cấu hình verify, hoặc đã có
+            if cp:
+                with journal_context(extra={"checkpoint": cp}):
+                    return set_fields(root, id_, changes)
     return set_fields(root, id_, changes)
 
 
@@ -641,7 +653,7 @@ def entry_errors(root: Path, kind: str, e: dict, extra_ids=frozenset()) -> list:
     label = eid or f"<{kind}>"
     if not is_id(eid) or kind_of(eid) != kind:
         errs.append(f"{label}: id sai định dạng cho {kind}")
-    missing = [f for f in FIELDS[kind] if f not in e]
+    missing = [f for f in FIELDS[kind] if f not in e and f not in OPTIONAL_FIELDS.get(kind, ())]
     if missing:
         errs.append(f"{label}: thiếu trường {missing}")
     unknown = [f for f in e if f not in FIELDS[kind]]
@@ -730,6 +742,8 @@ def entry_errors(root: Path, kind: str, e: dict, extra_ids=frozenset()) -> list:
             errs.append(f"{label}: kind '{e.get('kind')}' không hợp lệ")
         if e.get("result") not in EVD_RESULTS:
             errs.append(f"{label}: result '{e.get('result')}' không hợp lệ")
+        if e.get("by", "agent") not in EVD_BY:
+            errs.append(f"{label}: by '{e.get('by')}' không hợp lệ")
     return errs
 
 
@@ -1031,6 +1045,8 @@ def apply_envelope(root: Path, env: dict) -> str:
             unknown = set(ev) - {"kind", "result", "summary", "paths"}
             if unknown or not ev.get("summary"):
                 raise OrcError("evidence mới cần summary; chỉ có kind/result/summary/paths")
+            if ev.get("kind") in ORC_ONLY_KINDS:
+                raise OrcError(f"evidence kind '{ev['kind']}' chỉ do `orc verify` tạo")
             check_summary(ev["summary"])
         else:
             raise OrcError("evidence phải là EVD-ID hoặc mapping")
@@ -1150,7 +1166,8 @@ def show(root: Path, id_: str, meta: bool = False, pack: bool = False) -> str:
         for o in e["outputs"]:
             if is_id(o) and kind_of(o) == "evidence":
                 _, _, ev = find_entry(root, o)
-                lines.append(f"  - {o}: kind={ev['kind']} result={ev['result']} paths={ev['paths']}")
+                lines.append(f"  - {o}: kind={ev['kind']} result={ev['result']} by={ev.get('by', 'agent')} "
+                             f"paths={ev['paths']}")
         return "\n".join(lines) + "\n"
     out = dump_yaml(e)
     if meta:
@@ -1668,6 +1685,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     s.add_argument("--to", required=True)
 
+    s = sub.add_parser("verify", help="V1/V2 tất định: scope bằng git + lệnh kiểm từ checkpoint (exit 6 = fail)")
+    s.add_argument("id")
+
     s = sub.add_parser("show", help="xem một ID")
     s.add_argument("id")
     s.add_argument("--meta", action="store_true", help="chỉ metadata (cho Orchestrator)")
@@ -1744,6 +1764,7 @@ def run(argv=None) -> int:
 
 # Lệnh ghi state/registry: chạy trong khoá (H5)
 MUTATING = {"new", "set", "advance", "apply", "next", "handoff", "ctx"}
+# verify tự lấy khoá chỉ lúc ghi EVD: lệnh kiểm chạy lâu không được giữ khoá state
 
 
 def _run(root: Path, args) -> int:
@@ -1757,6 +1778,11 @@ def _run(root: Path, args) -> int:
     elif args.cmd == "advance":
         e = advance(root, args.id, args.to)
         print(f"{args.id} → {e['status']}")
+    elif args.cmd == "verify":
+        import orc_verify  # noqa: PLC0415
+        res = orc_verify.verify(root, args.id)
+        sys.stdout.write(orc_verify.render(res))
+        return 0 if all(r["orc"] == "pass" for r in res["compare"]) else 6
     elif args.cmd == "show":
         sys.stdout.write(show(root, args.id, meta=args.meta, pack=args.pack))
     elif args.cmd == "next":

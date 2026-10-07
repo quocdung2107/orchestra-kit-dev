@@ -39,3 +39,18 @@ Mỗi FINDING: vấn đề, bằng chứng, lựa chọn, đề xuất. Không t
   `*` không qua `/`, `**` qua nhiều cấp (giống `.gitignore`), task cũ phải viết lại scope.
 - **Đề xuất:** Phase 2 giữ (a) để không đổi hành vi 0.1.0 (cổng Phase 1–2 là "0.1.0 vẫn chạy"); ghi rõ
   giới hạn. Đổi sang (b) cùng lúc với state machine ở Phase 4, cần Dung duyệt.
+
+## FINDING-4 — `orc verify` không phân biệt lỗi môi trường với lỗi thật; lint đang không chạy được trên máy (Phase 2)
+
+- **Vấn đề:** Phát lại 5 yêu cầu thật: `npm run lint` fail ở cả 5 vì Windows Application Control chặn file native
+  `@oxlint/binding-win32-x64-msvc/oxlint.win32-x64-msvc.node` ("An Application Control policy has blocked this
+  file"). Chặn cả bản gốc ở `D:\WMS\app\node_modules` (thử `require` trực tiếp), không chỉ bản chép ở Temp.
+  `orc verify` ghi `lint: fail` và so với tự khai thành 13 dòng `LỆCH` — đúng là không cho lọt, nhưng **không
+  phải** bằng chứng tự khai sai: lúc 2026-10-05/06 lint có thể đã chạy được.
+- **Bằng chứng:** `docs/phases/PHASE-2-replay.md`; log `.orchestra/runtime/verify/TASK-*/lint.log` trong bản replay.
+- **Hệ quả:** (1) với Dung: `npm run lint` hiện có thể không chạy trên máy này (nên tự thử); (2) với thiết kế:
+  verdict nhị phân pass/fail làm báo động giả, dễ dẫn tới "mệt mỏi phê duyệt" (W2.2).
+- **Lựa chọn:** (a) giữ nhị phân, người đọc log; (b) thêm `failure_class: ENV` cho kết quả lệnh khi khớp chữ ký
+  lỗi môi trường đã biết (không tìm thấy lệnh, bị chính sách chặn, timeout) — đúng nhãn I1 của v0.2, dùng ở bảng I2
+  (ENV → RETRY ≤ 2 rồi ESCALATE).
+- **Đề xuất:** (b) làm cùng bảng I2 ở Phase 4, không làm trong Phase 2. Dung kiểm `npm run lint` trên máy.

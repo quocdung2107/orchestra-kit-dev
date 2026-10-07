@@ -56,7 +56,7 @@ Tiêu chí chấp nhận trỏ dạng `ART-0001#AC-2` tới dòng `- AC-2: ...` 
 **Decision**: `id, status(proposed|accepted|superseded), scope, summary, supersedes`.
 Accept một DEC có `supersedes` → orc tự chuyển DEC cũ sang `superseded`.
 
-**Context**: `id, task, summary, paths[]` · **Evidence**: `id, task, kind(test|lint|build|manual|other), result(pass|fail|info), summary, paths[]`
+**Context**: `id, task, summary, paths[]` · **Evidence**: `id, task, kind(test|lint|build|manual|other|typecheck|scope), result(pass|fail|info), summary, paths[], by(agent|orc)` — `typecheck|scope` và `by: orc` chỉ do `orc verify` tạo; mục cũ thiếu `by` = agent
 
 `summary` ≤ 200 ký tự ở mọi nơi.
 
@@ -129,6 +129,7 @@ Hai chặng (Dung chốt lại 2026-10-05):
 | `orc set ID k=v ...` | sửa trường (giá trị đọc như YAML: `[a,b]`, `true`); **không** đổi `status, level, attempts, failure_class, needs_user, resume_status, approved_*` (v0.2 phase 1, H1) |
 | `orc advance ID --to X` | đổi trạng thái theo bảng chuyển: TASK `pending/ready→dispatched` (blocked_by xong), `dispatched→ready`, `blocked(needs_user)/failed→ready`, researcher `done→dispatched`; ART `draft→accepted/rejected`; DEC `proposed→accepted` |
 | `orc show ID [--meta] [--pack]` | `--meta` cho A; `--pack` cho reviewer |
+| `orc verify TASK` | V1/V2 tất định (v0.2 phase 2): so file đổi kể từ checkpoint (tạo khi `advance → dispatched` task coder, chụp cả mục `verify:` của config) với write_scope, quét risk_paths/bí mật, chạy `test/typecheck/lint/build` từ bản chụp (env bỏ biến kiểu secret, cwd trong dự án, timeout); tạo EVD `by: orc`, in `LỆCH` so với EVD tự khai; exit 6 = fail. Không đổi trạng thái task |
 | `orc next` | thăng hạng task, in READY/REVIEW/HỎI DUNG/NEXT |
 | `orc apply FILE|-` | nạp envelope, định tuyến, in `ROUTE:` (thêm ngoài đặc tả: cần để giữ D4) |
 | `orc handoff open|check` | mở/kiểm handoff phiên |
