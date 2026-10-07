@@ -228,6 +228,19 @@ def load_active(root: Path):
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
+def refresh_active(root: Path) -> None:
+    """Shadow trên dự án vẫn chạy `orc` 0.1.0 (không ghi active.json): tự dựng lại từ registry khi cũ.
+    Chỉ ghi `runtime/active.json` (gitignore), không đổi workflow. Chế độ thật không dùng đường này."""
+    o = root / ".orchestra"
+    act = o / "runtime" / "active.json"
+    src = [o / "state" / "tasks.yaml", o / "state" / "artifacts.yaml"]
+    newest = max((p.stat().st_mtime for p in src if p.exists()), default=0)
+    if act.exists() and act.stat().st_mtime >= newest:
+        return
+    import orc_core  # noqa: PLC0415 - nạp YAML chỉ khi registry đổi
+    orc_core.write_active(root)
+
+
 def shadow(payload: dict) -> dict | None:
     """Logic hook ở shadow. Trả bản ghi đã log (để test), None nếu không phải dự án orchestra."""
     t0 = time.perf_counter()
@@ -236,6 +249,8 @@ def shadow(payload: dict) -> dict | None:
         return None
     tool, ti = payload.get("tool_name") or "", payload.get("tool_input") or {}
     try:
+        if not safe_mode():
+            refresh_active(root)
         decision, reason, mode = decide(root, None if safe_mode() else load_active(root), tool, ti,
                                         payload.get("agent_type"))
     except Exception as exc:  # noqa: BLE001 - chế độ thật sẽ exit 2

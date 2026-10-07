@@ -86,7 +86,7 @@ Giới hạn còn lại:
 
 ## Test
 
-`python -m unittest discover -s tests`: **Ran 121 tests, OK (skipped=1)** — 101 cũ + 20 mới (`tests/test_phase3.py`).
+`python -m unittest discover -s tests`: **120 passed + 1 skipped (Ran 121)** — 101 cũ + 20 mới (`tests/test_phase3.py`).
 
 ## AC
 
@@ -126,3 +126,12 @@ Khuyên: thử trên `D:\WMS` thật để có 10 task thật, sau khi commit `.
 
 Quay lui: `git -C C:\Users\quocd\orchestra-kit checkout main`; xoá 2 hook ở bước 3; dữ liệu `.orchestra` về commit
 ở bước 1 (FINDING-5).
+
+## Shadow trên D:\WMS (Dung duyệt 2026-10-07)
+
+Đổi so với "Cách Dung bật thử" ở trên: **không** checkout `phase-3` ở kit đang chạy (sẽ đổi workflow thật:
+`orc set` → `orc advance`, trường registry mới — FINDING-5). Kit đang chạy giữ `main` (0.1.0); chỉ 2 hook
+(UserPromptSubmit, PreToolUse) trỏ tới worktree tag `phase-3-shadow`, khai ở `D:\WMS\.claude\settings.local.json`
+(thêm vào `.git/info/exclude` để không lẫn vào commit). Guard tự dựng `runtime/active.json` từ registry khi registry
+đổi (orc 0.1.0 không ghi file này). Lỗi hook ghi `runtime/hook-errors.jsonl`. Báo cáo loại phiên triển khai kit
+(`--exclude-session`). Test: **122 passed + 1 skipped** (thêm 2 test: dựng active.json trên dự án 0.1.0, ghi lỗi hook).

@@ -28,9 +28,9 @@ def read(path: Path) -> list:
     return out
 
 
-def report(project: Path) -> str:
+def report(project: Path, exclude=()) -> str:
     rt = project / ".orchestra" / "runtime"
-    g = read(rt / "guard-shadow.jsonl")
+    g = [r for r in read(rt / "guard-shadow.jsonl") if r.get("session") not in exclude]
     s = read(rt / "shadow.jsonl")
     deny = [r for r in g if r.get("decision") == "deny"]
     out = ["# Shadow guard — tóm tắt", "",
@@ -54,6 +54,11 @@ def report(project: Path) -> str:
     miss = [r for r in s if r.get("event") == "approval_missing"]
     out.append(f"Giao task coder khi chưa có approval hợp lệ: {len(miss)} lần"
                + (f" ({', '.join(sorted({r['task'] for r in miss}))})" if miss else ""))
+    errs = read(rt / "hook-errors.jsonl")
+    out += ["", "## Lỗi hook", "", f"{len(errs)} lỗi" + "".join(f"\n- {e.get('ts')} {e.get('hook')}: {e.get('error')}"
+                                                         for e in errs[:20])]
+    out.append(f"Lời Dung đã ghi (prompts.jsonl): {len(read(rt / 'prompts.jsonl'))}; "
+               f"phiên bị loại khỏi thống kê: {list(exclude) or '-'}")
     out += ["", "Dung đánh dấu từng dòng: chặn đúng / chặn sai. Chặn sai > 0 ⇒ sửa bảng guard trước Phase 4."]
     return "\n".join(out) + "\n"
 
@@ -63,7 +68,9 @@ def main(argv=None) -> int:
         st.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
-    sys.stdout.write(report(Path(ap.parse_args(argv).project)))
+    ap.add_argument("--exclude-session", nargs="*", default=[], help="phiên không tính (vd phiên triển khai kit)")
+    a = ap.parse_args(argv)
+    sys.stdout.write(report(Path(a.project), set(a.exclude_session)))
     return 0
 
 

@@ -68,7 +68,7 @@ Giới hạn còn lại (ghi rõ, không sửa ở phase này):
 
 ## Test
 
-`python -m unittest discover -s tests`: **Ran 85 tests, OK (skipped=1)** — 77 cũ (1 test cũ sửa như trên)
+`python -m unittest discover -s tests`: **84 passed + 1 skipped (Ran 85)** — 77 cũ (1 test cũ sửa như trên)
 + 8 mới trong `tests/test_phase1.py`. Skip vẫn là FINDING-1.
 
 ## AC

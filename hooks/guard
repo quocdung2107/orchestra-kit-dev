@@ -13,12 +13,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "cli"))
 
 
 def main() -> int:
+    raw = ""
     try:
-        payload = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
+        raw = sys.stdin.buffer.read().decode("utf-8")
+        payload = json.loads(raw or "{}")
         import orc_guard  # chỉ stdlib
         orc_guard.shadow(payload)
     except Exception as exc:  # shadow: không bao giờ làm hỏng phiên
         print(f"[orchestra] guard shadow lỗi: {exc}", file=sys.stderr)
+        try:  # ghi lỗi để báo cáo shadow đếm được (không bao giờ làm hỏng phiên)
+            import datetime, os
+            d = os.path.join(json.loads(raw or "{}").get("cwd") or ".", ".orchestra", "runtime")
+            if os.path.isdir(d):
+                with open(os.path.join(d, "hook-errors.jsonl"), "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"ts": datetime.datetime.now().isoformat(timespec="seconds"),
+                                        "hook": "guard", "error": str(exc)[:300]}, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
     return 0
 
 

@@ -82,7 +82,7 @@ Giới hạn còn lại (ADJUSTMENTS #7, #8 — ghi rõ, không gọi là sandbo
 
 ## Test
 
-`python -m unittest discover -s tests`: **Ran 101 tests, OK (skipped=1)** — 85 cũ + 16 mới (`tests/test_phase2.py`).
+`python -m unittest discover -s tests`: **100 passed + 1 skipped (Ran 101)** — 85 cũ + 16 mới (`tests/test_phase2.py`).
 
 ## AC
 

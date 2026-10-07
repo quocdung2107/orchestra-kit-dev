@@ -244,6 +244,28 @@ class TestGuardHookShadow(Base):
         self.assertEqual((rec["decision"], rec["mode"], rec["agent_type"]), ("deny", "implement", "coder"))
         self.assertIn("ms", rec)
 
+    def test_shadow_on_v01_project_rebuilds_active_json(self):
+        # Dự án vẫn chạy orc 0.1.0: không có active.json; guard tự dựng từ registry, không đổi registry
+        items = oc.load_registry(self.root, "task")
+        for it in items:
+            if it["id"] == self.t:
+                it["status"] = "dispatched"
+        oc.save_registry(self.root, "task", items)
+        (self.root / ".orchestra/runtime/active.json").unlink()
+        before = oc.registry_path(self.root, "task").read_text(encoding="utf-8")
+        hook("guard", {"cwd": str(self.root), "tool_name": "Bash", "tool_input": {"command": "npm install x"}})
+        rec = json.loads((self.root / ".orchestra/runtime/guard-shadow.jsonl").read_text(encoding="utf-8")
+                         .splitlines()[-1])
+        self.assertEqual((rec["mode"], rec["decision"]), ("implement", "deny"))
+        self.assertEqual(oc.registry_path(self.root, "task").read_text(encoding="utf-8"), before)
+
+    def test_hook_error_is_recorded(self):
+        (self.root / ".orchestra/runtime/prompts.jsonl").mkdir(parents=True)  # ghi vào thư mục ⇒ lỗi
+        code, _, err = hook("prompt_log", {"cwd": str(self.root), "prompt": "x"})
+        self.assertEqual(code, 0)
+        rows = (self.root / ".orchestra/runtime/hook-errors.jsonl").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(json.loads(rows[-1])["hook"], "prompt_log")
+
     def test_shadow_logs_error_as_would_deny(self):
         (self.root / ".orchestra/runtime/active.json").write_text("{hỏng", encoding="utf-8")
         code, _, _ = hook("guard", {"cwd": str(self.root), "tool_name": "Edit", "tool_input": {"file_path": "x"}})

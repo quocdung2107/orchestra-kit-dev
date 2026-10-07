@@ -81,7 +81,7 @@ FINDING-3 (`*` khớp `/` trong write_scope). Chi tiết: `docs/phases/FINDINGS.
 
 ## Test
 
-`python -m unittest discover -s tests` trong worktree: **Ran 77 tests, OK (skipped=1)**.
+`python -m unittest discover -s tests` trong worktree: **76 passed + 1 skipped (Ran 77)**.
 - 74 test cũ + 3 test mới (`tests/test_phase0_baseline.py`).
 - 1 skip: `test_install_is_idempotent_and_keeps_settings`, chỉ khi thư mục kit không tên `orchestra-kit`
   (FINDING-1). Chọn cách này vì không đổi `install.py` (bước release) và không đổi cách chạy test.
