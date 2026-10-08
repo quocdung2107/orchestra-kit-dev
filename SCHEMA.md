@@ -98,7 +98,8 @@ Hai chặng (Dung chốt lại 2026-10-05):
 
 1. **Hiểu yêu cầu & thiết kế — luôn dừng.** Researcher viết ART `research` 4 mục: Tôi hiểu yêu cầu là ·
    Thiết kế sơ bộ · Chưa rõ / thiếu thông tin · Câu hỏi cho Dung. A gửi Dung nguyên văn `orc ask ART-x`.
-   Câu trả lời của Dung → DEC accepted (scope = ART research); ART research → accepted.
+   Câu trả lời của Dung → DEC **proposed** (scope = ART research); A chạy `orc approval request <ART> <DEC...>`,
+   Dung gõ dòng `orc:approve ...`, `orc approve` đưa ART research + DEC sang accepted (H7, v0.2 phase 4).
 2. **Plan → code → review → báo cáo — tự chạy.** Task plan có inputs = ART research + DEC; `orc gate` →
    tự accept plan → vòng coder/reviewer theo `orc next` + `ROUTE:` → commit nhánh `orchestra/<ROOT>`
    (không merge/push) → handoff → trả `orc report <task plan>`. Chỉ dừng khi: `orc gate` = ASK, `HỎI DUNG`,
@@ -127,12 +128,13 @@ Hai chặng (Dung chốt lại 2026-10-05):
 | `orc brief [--key K]` | brief ≤ ~1.5k token |
 | `orc new task|artifact|decision|context|evidence ...` | tạo mục, in ID; `orc new task --from ART-x` tạo task từ khối ```` ```yaml orc-tasks ```` của plan đã accepted |
 | `orc set ID k=v ...` | sửa trường (giá trị đọc như YAML: `[a,b]`, `true`); **không** đổi `status, level, attempts, failure_class, needs_user, resume_status, approved_*` (v0.2 phase 1, H1) |
-| `orc advance ID --to X` | đổi trạng thái theo bảng chuyển: TASK `pending/ready→dispatched` (blocked_by xong), `dispatched→ready`, `blocked(needs_user)/failed→ready`, researcher `done→dispatched`; ART `draft→accepted/rejected`; DEC `proposed→accepted` |
+| `orc advance ID --to X` | đổi trạng thái theo bảng chuyển: TASK `pending/ready→dispatched` (blocked_by xong), `dispatched→ready`, `blocked(needs_user)/failed→ready`, researcher `done→dispatched`; ART `draft→accepted/rejected` (trừ ART research: chỉ qua `orc approve`); DEC: không có — chỉ `orc approve` (H7) |
+| `orc new decision` | chỉ tạo DEC `proposed`; `--status accepted/superseded` bị từ chối (H7). `orc set` không sửa `summary/scope/supersedes` của DEC đã accepted |
 | `orc show ID [--meta] [--pack]` | `--meta` cho A; `--pack` cho reviewer |
-| `orc approval request TASK` | (v0.2 phase 3) tính binding `task + plan_hash + write_scope_hash + level + risk_flags`, sinh nonce dùng một lần, in dòng Dung phải gõ `orc:approve TASK NONCE` |
-| `orc approve TASK` | ghi phê duyệt chỉ khi hook UserPromptSubmit đã ghi đúng dòng đó của Dung sau lúc yêu cầu, nonce chưa dùng, binding không đổi; `state/approvals.yaml` + journal |
+| `orc approval request ID...` | (v0.2 phase 3–4) binding từng ID — TASK: `plan_hash + write_scope_hash + level + risk_flags`; DEC: nội dung; ART: thân — sinh nonce dùng một lần, in dòng Dung phải gõ `orc:approve ID1,ID2 NONCE` (một lần duyệt nhiều ID) |
+| `orc approve ID...` | chỉ khi hook UserPromptSubmit đã ghi đúng dòng đó của Dung sau lúc yêu cầu, nonce chưa dùng, mọi binding không đổi: DEC `proposed→accepted` (DEC cũ superseded), ART `draft→accepted`, TASK ghi approval; `state/approvals.yaml` + journal. **Đường duy nhất tạo DEC accepted** |
 | `orc approval check TASK` | approval còn hiệu lực? plan/scope/level/risk đổi ⇒ hết (exit 3) |
-| `orc verify TASK` | V1/V2 tất định (v0.2 phase 2): so file đổi kể từ checkpoint (tạo khi `advance → dispatched` task coder, chụp cả mục `verify:` của config) với write_scope, quét risk_paths/bí mật, chạy `test/typecheck/lint/build` từ bản chụp (env bỏ biến kiểu secret, cwd trong dự án, timeout); tạo EVD `by: orc`, in `LỆCH` so với EVD tự khai; exit 6 = fail. Không đổi trạng thái task |
+| `orc verify TASK` | V1/V2 tất định (v0.2 phase 2): so file đổi kể từ checkpoint (tạo khi `advance → dispatched` task coder, chụp cả mục `verify:` của config) với write_scope, quét risk_paths/bí mật, chạy `test/typecheck/lint/build` từ bản chụp (env bỏ biến kiểu secret, cwd trong dự án, timeout); tạo EVD `by: orc`, in `LỆCH` so với EVD tự khai. Mỗi lệnh: pass / `TEST|LINT|BUILD|TYPECHECK_FAILURE` / `ENVIRONMENT_FAILURE` (Application Control chặn, thiếu native binding, không tìm thấy lệnh, exit 126/127 — EVD `info`, không tính LỆCH). Exit 0 PASS, 6 FAIL, 7 INCOMPLETE (chỉ lỗi môi trường). Không đổi trạng thái task |
 | `orc next` | thăng hạng task, in READY/REVIEW/HỎI DUNG/NEXT |
 | `orc apply FILE|-` | nạp envelope, định tuyến, in `ROUTE:` (thêm ngoài đặc tả: cần để giữ D4) |
 | `orc handoff open|check` | mở/kiểm handoff phiên |
@@ -146,8 +148,17 @@ Hai chặng (Dung chốt lại 2026-10-05):
   các dòng `orc:...`; chuỗi hash. Hook **PreToolUse** `hooks/guard` → `runtime/guard-shadow.jsonl` (shadow: luôn cho
   qua). Guard đọc `runtime/active.json` (orc ghi mỗi lần lưu registry), không nạp YAML.
 - `orc advance <task coder> --to dispatched` thiếu approval hợp lệ ⇒ ghi `runtime/shadow.jsonl` (chưa chặn).
-- `ORC_SAFE_MODE=1` (Dung đặt trước khi mở VS Code): guard chỉ cho sửa kit + `.orchestra/config.yaml`; `orc` từ chối
-  lệnh đổi workflow; brief cảnh báo. Không có biến tắt guard.
+- `ORC_SAFE_MODE=1` (Dung đặt trước khi mở VS Code): guard chỉ cho Edit/Write vào kit + `.orchestra/config.yaml`; `orc`
+  từ chối lệnh đổi workflow; brief cảnh báo. Không có biến tắt guard.
+- **Phase 4 (FINDING-6, Dung chốt): Bash không phải semantic sandbox.** Guard Bash chỉ deny luật tin cậy cao (git
+  push/merge/rebase/reset --hard/clean -f/branch -D, `supabase db push|reset`, deploy/publish, xoá đệ quy, psql ngoài
+  localhost, ghi vào vùng deny_always, chạm file bí mật) trên lệnh đã bỏ thân heredoc và câu trong ngoặc. Không suy
+  write_scope từ Bash; `orc verify` hậu kiểm. Edit/Write: deny_always (`.orchestra/` trừ `writable` của active.json,
+  `.claude/`, `~/.claude/`, `.git/`, file bí mật, `guard.protected_paths`) + write_scope khi có task coder chạy.
+- Khớp đường dẫn (write_scope, risk/guard/artifact paths): kiểu gitignore, neo ở gốc dự án — `*` không qua `/`,
+  `**` nhiều cấp, đuôi `/` là thư mục (`orc_guard.match_path`, FINDING-3).
+- Journal: lệnh `orc` ghi state bị từ chối ⇒ dòng `{event: rejected, task, operation, reason, reason_hash, actor, ts}` (F2).
+- Quay lui dữ liệu về 0.1.0: `tools/rollback_v02_to_v01.py` (dry-run mặc định; F5).
 
 ## 9. Cú pháp Claude Code đã kiểm (2026-10-05)
 

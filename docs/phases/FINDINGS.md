@@ -88,3 +88,14 @@ Mỗi FINDING: vấn đề, bằng chứng, lựa chọn, đề xuất. Không t
   `python -c`; (c) giữ allowlist, sửa prompt agent dùng Edit/Write thay vì Bash heredoc.
 - **Đề xuất:** (a) + phần nhỏ của (c) (agent ưu tiên Edit/Write); Edit/Write vẫn kiểm write_scope như hiện tại
   (0 sai trên 38 lần Edit/Write). Cần Dung quyết trước Phase 4 vì đổi bảng N1 của v0.2.
+
+## Trạng thái sau Phase 4 (2026-10-08)
+
+| FINDING | Trạng thái |
+|---|---|
+| 1 install.py theo tên thư mục | mở — sửa khi bước release đụng install.py |
+| 2 journal không ghi từ chối | **đã sửa** (event `rejected`) |
+| 3 `*` khớp `/` | **đã sửa** (`match_path` kiểu gitignore, neo gốc) |
+| 4 lỗi môi trường ≠ lỗi dự án | **đã sửa** (`ENVIRONMENT_FAILURE`, INCOMPLETE exit 7); lint hôm nay chạy được |
+| 5 quay lui v0.2 → 0.1.0 | **đã sửa** (`tools/rollback_v02_to_v01.py`) |
+| 6 Bash allowlist | **đã sửa** theo nguyên tắc Dung chốt: Bash không phải semantic sandbox |

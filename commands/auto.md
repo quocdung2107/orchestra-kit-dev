@@ -20,10 +20,14 @@ Không báo tiến độ từng bước; chỉ nói với Dung ở điểm dừn
    "Trả lời các câu hỏi (hoặc ghi 'đồng ý theo khuyên dùng'), sửa chỗ tôi hiểu sai nếu có."
    `orc ask` báo lỗi (mục chưa điền) → gửi lỗi cho researcher sửa rồi chạy lại. **Dừng chờ Dung.**
 5. Dung trả lời:
-   - Mỗi ý Dung chốt → `orc new decision --status accepted --scope <UND> --summary "<≤200>"`.
+   - Mỗi ý Dung chốt → `orc new decision --scope <UND> --summary "<≤200>"` (chỉ **đề xuất**: A không được
+     tự accept DEC — H7; `--status accepted` bị orc từ chối).
    - Dung sửa cách hiểu nhiều hoặc thêm yêu cầu mới → `orc advance <ROOT> --to dispatched`, gọi lại researcher
      với cùng ROOT/UND kèm ý của Dung (1–3 câu), `orc apply -`, rồi lặp lại bước 4.
-   - Đủ rõ → `orc advance <UND> --to accepted`, sang chặng 2.
+   - Đủ rõ → `orc approval request <UND> <các DEC vừa tạo>`, gửi Dung **nguyên văn** các dòng nó in (dòng
+     `orc:approve ...` và danh sách DEC) và nói "gõ đúng dòng orc:approve để chốt". **Dừng chờ.**
+     Dung gõ dòng đó → `orc approve <UND> <các DEC>` (orc chỉ nhận khi thấy đúng dòng Dung gõ; UND + DEC thành
+     accepted) → sang chặng 2. Không bao giờ tự gõ/chép dòng `orc:approve` thay Dung.
 
 ## Chặng 2 — Plan → code → review → báo cáo (tự chạy)
 1. `orc new task --title "Plan: <tóm tắt>" --owner researcher --inputs <UND> <các DEC vừa tạo>` → PT;

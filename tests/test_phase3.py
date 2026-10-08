@@ -179,7 +179,7 @@ class TestGuardDecide(Base):
         tasks = []
         for tid, status, owner, scope, arts in statuses:
             tasks.append({"id": tid, "status": status, "owner": owner, "write_scope": scope, "artifacts": arts})
-        return {"tasks": tasks}
+        return {"tasks": tasks, "writable": [a for t in tasks for a in t["artifacts"]]}
 
     def d(self, active, tool, ti, **kw):
         return og.decide(self.root, active, tool, ti, safe=False, **kw)[0]
@@ -206,10 +206,12 @@ class TestGuardDecide(Base):
         self.assertEqual(self.d(a, "Write", {"file_path": "C:/elsewhere/x.txt"}), "deny")
         self.assertEqual(self.d(a, "Bash", {"command": "cd app && npm run test 2>&1 | tail -5"}), "allow")
         self.assertEqual(self.d(a, "Bash", {"command": "git add -A && git commit -m x"}), "allow")
-        self.assertEqual(self.d(a, "Bash", {"command": "npm install left-pad"}), "deny")
-        self.assertEqual(self.d(a, "Bash", {"command": "python -c \"open('x','w')\""}), "deny")
-        self.assertEqual(self.d(a, "Bash", {"command": "cat a > b.txt"}), "deny")
-        self.assertEqual(self.d(a, "Bash", {"command": "sed -i s/a/b/ x"}), "deny")
+        # Phase 4 (FINDING-6): Bash không phải sandbox — ghi qua Bash ngoài vùng deny_always để orc verify hậu kiểm
+        self.assertEqual(self.d(a, "Bash", {"command": "npm install left-pad"}), "allow")
+        self.assertEqual(self.d(a, "Bash", {"command": "python -c \"open('x','w')\""}), "allow")
+        self.assertEqual(self.d(a, "Bash", {"command": "cat a > b.txt"}), "allow")
+        self.assertEqual(self.d(a, "Bash", {"command": "sed -i s/a/b/ x"}), "allow")
+        self.assertEqual(self.d(a, "Bash", {"command": "sed -i s/a/b/ .orchestra/state/tasks.yaml"}), "deny")
         self.assertEqual(self.d(a, "WebFetch", {"url": "https://x"}), "deny")
         self.assertEqual(self.d(a, "Read", {"file_path": "anything"}), "allow")
 
@@ -221,7 +223,7 @@ class TestGuardDecide(Base):
         self.assertEqual(self.d(a, "WebSearch", {"query": "x"}), "deny")
         self.assertEqual(self.d(a, "WebSearch", {"query": "x"}, agent_type="researcher-external"), "allow")
         self.assertEqual(self.d(a, "Bash", {"command": "git log --oneline -5"}), "allow")
-        self.assertEqual(self.d(a, "Bash", {"command": "git commit -m x"}), "deny")
+        self.assertEqual(self.d(a, "Bash", {"command": "git commit -m x"}), "allow")  # FINDING-6: hậu kiểm
         v = self.act([("TASK-0002", "in_review", "coder", ["app/src/"], [".orchestra/artifacts/ART-0009.md"])])
         self.assertEqual(self.d(v, "Edit", {"file_path": "app/src/a.ts"}), "deny")
         self.assertEqual(self.d(v, "Edit", {"file_path": ".orchestra/artifacts/ART-0009.md"}), "allow")
@@ -253,7 +255,8 @@ class TestGuardHookShadow(Base):
         oc.save_registry(self.root, "task", items)
         (self.root / ".orchestra/runtime/active.json").unlink()
         before = oc.registry_path(self.root, "task").read_text(encoding="utf-8")
-        hook("guard", {"cwd": str(self.root), "tool_name": "Bash", "tool_input": {"command": "npm install x"}})
+        hook("guard", {"cwd": str(self.root), "tool_name": "Write",
+                       "tool_input": {"file_path": str(self.root / "app/package.json")}})
         rec = json.loads((self.root / ".orchestra/runtime/guard-shadow.jsonl").read_text(encoding="utf-8")
                          .splitlines()[-1])
         self.assertEqual((rec["mode"], rec["decision"]), ("implement", "deny"))
@@ -292,8 +295,10 @@ class TestSafeMode(Base):
         self.assertEqual(d("Edit", {"file_path": str(self.root / ".orchestra/state/tasks.yaml")}), "deny")
         self.assertEqual(d("Bash", {"command": f"cd {KIT.as_posix()} && python -m unittest"}), "allow")
         self.assertEqual(d("Bash", {"command": "orc validate"}), "allow")
-        self.assertEqual(d("Bash", {"command": "orc advance TASK-0002 --to dispatched"}), "deny")
-        self.assertEqual(d("Bash", {"command": "npm run build"}), "deny")
+        # FINDING-6: guard không phân tích lệnh orc; ở SAFE_MODE chính `orc` từ chối (test_orc_refuses_workflow_mutation)
+        self.assertEqual(d("Bash", {"command": "orc advance TASK-0002 --to dispatched"}), "allow")
+        # FINDING-6: Bash ngoài luật deny tin cậy cao không bị chặn kể cả SAFE_MODE (hậu kiểm bằng git)
+        self.assertEqual(d("Bash", {"command": "npm run build"}), "allow")
         self.assertEqual(d("Bash", {"command": f"cd {KIT.as_posix()} && git push"}), "deny")
 
     def test_orc_refuses_workflow_mutation(self):
@@ -330,7 +335,7 @@ class TestShadowReport(Base):
             hook("guard", {"cwd": str(self.root), "session_id": "s", "tool_name": "Bash",
                            "tool_input": {"command": cmd}})
         text = rep.report(self.root)
-        self.assertIn("Tool call đã thấy: 3; lẽ ra chặn: 2", text)
+        self.assertIn("Tool call đã thấy: 3; lẽ ra chặn: 1", text)  # Phase 4: chỉ `git push` (FINDING-6)
         self.assertIn("Giao task coder khi chưa có approval hợp lệ: 1 lần (TASK-0002)", text)
 
 

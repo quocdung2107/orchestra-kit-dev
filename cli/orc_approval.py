@@ -1,11 +1,15 @@
-"""Phê duyệt của Dung (v0.2 N2; ADJUSTMENTS #4).
+"""Phê duyệt của Dung (v0.2 N2; ADJUSTMENTS #4; H7 Phase 4).
 
-Approval bind với TASK + PLAN_HASH + WRITE_SCOPE_HASH + LEVEL + RISK_FLAGS + NONCE:
-- `request`: orc tính binding, sinh nonce dùng một lần, in dòng Dung phải gõ `orc:approve TASK-x NONCE`.
-- `approve`: chỉ nhận khi hook UserPromptSubmit đã ghi đúng dòng đó **sau** lúc yêu cầu, nonce chưa dùng và
-  binding tính lại khớp. Plan, write_scope, level hoặc risk_flags đổi ⇒ approval cũ hết hiệu lực (`check`).
+- `request ID...`: orc tính binding cho từng ID, sinh nonce dùng một lần, in dòng Dung phải gõ
+  `orc:approve ID1,ID2 NONCE`. Một lần duyệt có thể gồm nhiều ID (ADJUSTMENTS #2 "hỏi một lần").
+  Binding: TASK = task + plan_hash + write_scope_hash + level + risk_flags (#4); DEC = nội dung DEC (summary, scope,
+  supersedes, file); ART = nội dung thân.
+- `approve ID...`: chỉ nhận khi hook UserPromptSubmit đã ghi đúng dòng đó **sau** lúc yêu cầu, nonce chưa dùng và
+  mọi binding tính lại khớp. Khi đó DEC `proposed` → `accepted` (DEC cũ supersedes tự superseded), ART `draft` →
+  `accepted`; TASK ghi approval. **Đây là đường duy nhất để một DEC/ART research thành accepted (H7).**
+- `check TASK`: approval còn hiệu lực? Binding đổi ⇒ hết.
 Giới hạn: process cùng user vẫn ghi thêm được dòng vào prompts.jsonl; chuỗi hash phát hiện sửa dòng cũ, không ngăn
-thêm dòng mới (v0.2 N2). Guard (Phase 4) chặn tool ghi vào runtime/.
+thêm dòng mới (v0.2 N2). Nonce do orc in ra nên LLM cũng thấy: chống dùng lại/nhầm, không chống giả mạo.
 """
 
 from __future__ import annotations
@@ -31,7 +35,12 @@ def path(root: Path) -> Path:
 
 
 def load(root: Path) -> list:
-    return oc.load_yaml_file(path(root)) or []
+    items = oc.load_yaml_file(path(root)) or []
+    for a in items:  # bản ghi Phase 3: {task, binding} ⇒ {ids, bindings}
+        if "ids" not in a and a.get("task"):
+            a["ids"] = [a["task"]]
+            a["bindings"] = {a["task"]: a.get("binding")}
+    return items
 
 
 def save(root: Path, items: list) -> None:
@@ -53,38 +62,64 @@ def plan_ids(root: Path, task: dict) -> list:
     return out
 
 
-def binding(root: Path, tid: str) -> dict:
-    _, _, task = oc.find_entry(root, tid)
-    parts = []
-    for i in plan_ids(root, task):
-        p = oc.content_path(root, i)
-        body = oc.split_frontmatter(oc.read_text(p))[1] if p.exists() else "(mất)"
-        parts.append(f"{i}\n{body}")
-    return {"task": tid, "plans": plan_ids(root, task),
-            "plan_hash": _sha("\n\0".join(parts)),
-            "write_scope_hash": _sha(json.dumps(sorted(map(str, oc.as_list(task.get("write_scope")))))),
-            "level": task.get("level"),
-            "risk_flags": sorted(oc.as_list(task.get("risk_flags")))}
+def _body(root: Path, id_: str) -> str:
+    p = oc.content_path(root, id_)
+    return oc.split_frontmatter(oc.read_text(p))[1] if p.exists() else "(mất)"
+
+
+def binding(root: Path, id_: str) -> dict:
+    kind = oc.kind_of(id_)
+    _, _, e = oc.find_entry(root, id_)
+    if kind == "task":
+        parts = [f"{i}\n{_body(root, i)}" for i in plan_ids(root, e)]
+        return {"task": id_, "plans": plan_ids(root, e), "plan_hash": _sha("\n\0".join(parts)),
+                "write_scope_hash": _sha(json.dumps(sorted(map(str, oc.as_list(e.get("write_scope")))))),
+                "level": e.get("level"), "risk_flags": sorted(oc.as_list(e.get("risk_flags")))}
+    if kind == "decision":
+        return {"decision": id_, "summary": e.get("summary"), "scope": e.get("scope"),
+                "supersedes": e.get("supersedes"), "file_hash": _sha(_body(root, id_))}
+    if kind == "artifact":
+        return {"artifact": id_, "type": e.get("type"), "task": e.get("task"), "body_hash": _sha(_body(root, id_))}
+    raise oc.OrcError(f"{id_}: chỉ duyệt TASK, DEC hoặc ART")
 
 
 def _now() -> str:
     return dt.datetime.now().isoformat(timespec="microseconds")
 
 
-def request(root: Path, tid: str) -> str:
-    b = binding(root, tid)
+def _ids(ids) -> list:
+    if isinstance(ids, str):
+        ids = [ids]
+    out = []
+    for i in ids:
+        out += [x for x in str(i).split(",") if x]
+    if not out or len(set(out)) != len(out):
+        raise oc.OrcError("cần danh sách ID không trùng")
+    return out
+
+
+def request(root: Path, ids) -> str:
+    ids = _ids(ids)
+    for i in ids:
+        kind = oc.kind_of(i)
+        status = oc.find_entry(root, i)[2].get("status")
+        if kind == "decision" and status != "proposed":
+            raise oc.OrcError(f"{i} đang {status}: chỉ duyệt DEC proposed")
+        if kind == "artifact" and status != "draft":
+            raise oc.OrcError(f"{i} đang {status}: chỉ duyệt ART draft")
     items = load(root)
     for a in items:
-        if a.get("task") == tid and a.get("status") == "pending":
+        if a.get("status") == "pending" and set(a.get("ids") or []) & set(ids):
             a["status"] = "expired"
     nonce = secrets.token_hex(3).upper()
-    items.append({"task": tid, "nonce": nonce, "status": "pending", "requested_at": _now(), "binding": b})
+    items.append({"ids": ids, "nonce": nonce, "status": "pending", "requested_at": _now(),
+                  "bindings": {i: binding(root, i) for i in ids}})
     save(root, items)
-    _, _, task = oc.find_entry(root, tid)
-    return (f"Dung gõ đúng dòng sau để duyệt {tid}:\n  orc:approve {tid} {nonce}\n"
-            f"({oc._short(task.get('title'), 60)}; plan {', '.join(b['plans']) or '—'}; "
-            f"write_scope {len(oc.as_list(task.get('write_scope')))} mục; level {b['level']}; "
-            f"risk {b['risk_flags'] or '[]'})")
+    lines = [f"Dung gõ đúng dòng sau để duyệt:\n  orc:approve {','.join(ids)} {nonce}"]
+    for i in ids:
+        e = oc.find_entry(root, i)[2]
+        lines.append(f"- {i}: {oc._short(e.get('title') or e.get('summary'), 100)}")
+    return "\n".join(lines)
 
 
 def prompt_lines(root: Path) -> list:
@@ -102,13 +137,15 @@ def prompt_lines(root: Path) -> list:
     return out
 
 
-def approve(root: Path, tid: str) -> dict:
+def approve(root: Path, ids) -> dict:
+    ids = _ids(ids)
     items = load(root)
-    pend = [a for a in items if a.get("task") == tid and a.get("status") == "pending"]
+    pend = [a for a in items if a.get("status") == "pending" and a.get("ids") == ids]
     if not pend:
-        raise oc.OrcError(f"{tid}: chưa có yêu cầu duyệt; chạy `orc approval request {tid}`")
+        raise oc.OrcError(f"{','.join(ids)}: chưa có yêu cầu duyệt đúng danh sách này; "
+                          f"chạy `orc approval request {' '.join(ids)}`")
     req = pend[-1]
-    want = f"orc:approve {tid} {req['nonce']}".lower()
+    want = f"orc:approve {','.join(ids)} {req['nonce']}".lower()
     hit = None
     for rec in prompt_lines(root):
         if rec.get("ts", "") <= req["requested_at"]:
@@ -117,30 +154,35 @@ def approve(root: Path, tid: str) -> dict:
             hit = rec
             break
     if hit is None:
-        raise oc.OrcError(f"{tid}: chưa thấy Dung gõ `orc:approve {tid} {req['nonce']}` sau lúc yêu cầu "
+        raise oc.OrcError(f"chưa thấy Dung gõ `orc:approve {','.join(ids)} {req['nonce']}` sau lúc yêu cầu "
                           f"({req['requested_at']})")
-    now = binding(root, tid)
-    if now != req["binding"]:
-        changed = [k for k in now if now[k] != req["binding"].get(k)]
+    changed = [f"{i}.{k}" for i in ids for k, v in binding(root, i).items() if v != req["bindings"][i].get(k)]
+    if changed:
         req["status"] = "expired"
         save(root, items)
-        raise oc.OrcError(f"{tid}: {', '.join(changed)} đã đổi sau yêu cầu duyệt; tạo yêu cầu mới")
+        raise oc.OrcError(f"{', '.join(changed)} đã đổi sau yêu cầu duyệt; tạo yêu cầu mới")
     req.update(status="used", approved_at=_now(), prompt_sha256=hit["sha256"], session=hit.get("session"))
     save(root, items)
-    with oc.journal_context(extra={"event": "approve", "nonce": req["nonce"]}):
-        _, _, task = oc.find_entry(root, tid)
-        oc.append_journal(root, [{"id": tid, "from": task.get("status"), "to": task.get("status")}])
+    with oc.journal_context(extra={"event": "approve", "nonce": req["nonce"], "approved_ids": ids}):
+        for i in ids:
+            kind = oc.kind_of(i)
+            if kind in ("decision", "artifact"):
+                oc.set_fields(root, i, {"status": "accepted"})  # DEC: cascade supersedes trong set_fields
+            else:
+                st = oc.find_entry(root, i)[2].get("status")
+                oc.append_journal(root, [{"id": i, "from": st, "to": st}])
     return req
 
 
 def check(root: Path, tid: str) -> tuple:
-    """(còn hiệu lực?, lý do)."""
-    used = [a for a in load(root) if a.get("task") == tid and a.get("status") == "used"]
+    """(còn hiệu lực?, lý do) cho TASK."""
+    used = [a for a in load(root) if a.get("status") == "used" and tid in (a.get("ids") or [])]
     if not used:
         return False, "chưa có approval"
     now = binding(root, tid)
-    if now != used[-1]["binding"]:
-        changed = [k for k in now if now[k] != used[-1]["binding"].get(k)]
+    old = used[-1]["bindings"][tid]
+    if now != old:
+        changed = [k for k in now if now[k] != old.get(k)]
         return False, f"hết hiệu lực: {', '.join(changed)} đã đổi sau khi duyệt"
     return True, f"approval {used[-1]['nonce']} lúc {used[-1]['approved_at']}"
 

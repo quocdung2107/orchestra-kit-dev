@@ -21,19 +21,29 @@ import time
 from pathlib import Path
 
 import orc_core as oc
+import orc_guard
 
 COMMAND_NAMES = ("test", "typecheck", "lint", "build")
 DEFAULT_TIMEOUT = 600
-DEFAULT_RISK = ["**/migrations/**", "supabase/**", "**/auth/**", "**/*rls*", ".github/**", "*/.github/**",
-                ".claude/**", ".orchestra/**", "package.json", "*/package.json", "package-lock.json",
-                "*/package-lock.json", "pnpm-lock.yaml", "*/pnpm-lock.yaml", "yarn.lock", "*/yarn.lock",
-                "*.env*", "*/.env*"]
-DEFAULT_GUARD = ["package.json", "*/package.json", "package-lock.json", "*/package-lock.json",
-                 "pnpm-lock.yaml", "*/pnpm-lock.yaml", "yarn.lock", "*/yarn.lock"]
+# Mẫu khớp kiểu gitignore, neo ở gốc dự án (orc_guard.match_path — FINDING-3): `**/` = mọi cấp, kể cả gốc
+DEFAULT_RISK = ["**/migrations/", "supabase/", "**/auth/", "**/*rls*", "**/.github/", ".claude/", ".orchestra/",
+                "**/package.json", "**/package-lock.json", "**/pnpm-lock.yaml", "**/yarn.lock", "**/.env",
+                "**/.env.*"]
+DEFAULT_GUARD = ["**/package.json", "**/package-lock.json", "**/pnpm-lock.yaml", "**/yarn.lock"]
 # Thư mục sinh ra khi build/test (gitignore): không tính là "ghi ngoài scope". Ghi vào đây không bị phát hiện.
-DEFAULT_ARTIFACTS = ["node_modules/", "*/node_modules/", "dist/", "*/dist/", "build/", "*/build/",
-                     "coverage/", "*/coverage/", ".vite/", "*/.vite/", "__pycache__/", "*/__pycache__/",
-                     "*.tsbuildinfo"]
+DEFAULT_ARTIFACTS = ["**/node_modules/", "**/dist/", "**/build/", "**/coverage/", "**/.vite/", "**/__pycache__/",
+                     "**/*.tsbuildinfo"]
+# F4: chữ ký lỗi MÔI TRƯỜNG tin cậy cao — lệnh không chạy được, không phải dự án sai.
+# Không xếp vào đây: timeout (có thể test treo), "Cannot find module" (có thể import sai trong code).
+ENV_SIGNS = [
+    ("Windows Application Control chặn", re.compile(r"Application Control policy has blocked", re.I)),
+    ("thiếu native binding", re.compile(r"Cannot find native binding", re.I)),
+    ("không tìm thấy lệnh", re.compile(r"is not recognized as an internal or external command|command not found"
+                                      r"|No such file or directory.*\b(?:npm|node|npx|python[0-9.]*)\b", re.I)),
+    ("không có quyền chạy", re.compile(r"\bEACCES\b|Access is denied\.", re.I)),
+]
+FAILURE_OF = {"test": "TEST_FAILURE", "lint": "LINT_FAILURE", "build": "BUILD_FAILURE",
+              "typecheck": "TYPECHECK_FAILURE"}
 SECRET_ENV = re.compile(r"TOKEN|SECRET|PASSW|KEY|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE", re.I)
 # Không bắt chữ "service_role" trần: README/script nhắc tên biến là bình thường (replay Phase 2: 2 báo nhầm).
 # Khoá thật của Supabase là JWT ⇒ mẫu JWT bắt được.
@@ -109,7 +119,7 @@ def repo_snapshot(root: Path, rel: str) -> dict:
 
 
 def match_any(path: str, patterns) -> bool:
-    return oc._in_scope(path, list(patterns))
+    return orc_guard.match_path(path, list(patterns))
 
 
 # ---------------------------------------------------------------- checkpoint
@@ -255,10 +265,24 @@ def run_command(root: Path, name: str, spec: dict, logdir: Path) -> dict:
     log_path = logdir / f"{name}.log"
     log_path.write_bytes(out)
     text = out.decode("utf-8", "replace")
+    result, fclass, sign = classify(name, p.returncode, timed_out, text)
     return {"name": name, "run": spec["run"], "cwd": spec["cwd"], "exit": p.returncode,
             "timed_out": timed_out, "seconds": secs, "log": log_path.relative_to(root).as_posix(),
             "log_sha256": hashlib.sha256(out).hexdigest(), "counts": count_tests(text),
-            "result": "pass" if p.returncode == 0 and not timed_out else "fail"}
+            "result": result, "failure_class": fclass, "env_sign": sign}
+
+
+def classify(name: str, exit_code, timed_out: bool, log: str) -> tuple:
+    """(pass|fail|env, failure_class, chữ ký). env = ENVIRONMENT_FAILURE: không tính là lỗi của dự án (F4)."""
+    if exit_code == 0 and not timed_out:
+        return "pass", None, None
+    if not timed_out:
+        for label, rx in ENV_SIGNS:
+            if rx.search(log):
+                return "env", "ENVIRONMENT_FAILURE", label
+        if exit_code in (126, 127, 9009):  # không chạy được / không tìm thấy lệnh (sh, cmd.exe)
+            return "env", "ENVIRONMENT_FAILURE", f"exit {exit_code}"
+    return "fail", FAILURE_OF.get(name, "TEST_FAILURE"), None
 
 
 # ---------------------------------------------------------------- verify
@@ -303,10 +327,12 @@ def verify(root: Path, tid: str, scope_override=None) -> dict:
             res = run_command(root, name, spec, logdir)
             c = res["counts"]
             extra = f", pass {c.get('pass')}/fail {c.get('fail')}" if c else ""
-            summary = (f"orc verify {name}: `{spec['run']}` exit {res['exit']}"
+            head = f"{res['failure_class']} ({res['env_sign']}) — " if res["result"] == "env" else ""
+            summary = (f"orc verify {name}: {head}`{spec['run']}` exit {res['exit']}"
                        f"{' (timeout)' if res['timed_out'] else ''} trong {res['seconds']}s{extra}")
         runs.append(res)
-        evds.append(_evd(root, tid, name, res["result"], summary, res,
+        evd_result = "info" if res["result"] == "env" else res["result"]
+        evds.append(_evd(root, tid, name, evd_result, summary, res,
                          paths=[res["log"]] if res.get("log") else None))
     with oc.state_lock(root):  # gắn EVD vào task để reviewer thấy trong `orc show --pack`
         _, _, task = oc.find_entry(root, tid)
@@ -327,7 +353,9 @@ def compare(root: Path, tid: str, orc_results: dict) -> list:
     for kind, res in orc_results.items():
         claims = agent.get(kind, [])
         passes = [e["id"] for e in claims if e.get("result") == "pass"]
-        if res == "fail" and passes:
+        if res == "env":
+            verdict = "không kiểm được (ENVIRONMENT_FAILURE)"
+        elif res == "fail" and passes:
             verdict = "LỆCH"
         elif not claims:
             verdict = "không có tự khai"
@@ -338,8 +366,17 @@ def compare(root: Path, tid: str, orc_results: dict) -> list:
     return rows
 
 
+def overall(res: dict) -> str:
+    """PASS | FAIL (lỗi của dự án) | INCOMPLETE (chỉ còn lỗi môi trường: chưa kiểm được, không phải fail)."""
+    got = {r["orc"] for r in res["compare"]}
+    return "FAIL" if "fail" in got else "INCOMPLETE" if "env" in got else "PASS"
+
+
+EXIT_CODE = {"PASS": 0, "FAIL": 6, "INCOMPLETE": 7}
+
+
 def render(res: dict) -> str:
-    lines = [f"VERIFY {res['task']}: " + ("PASS" if all(r["orc"] == "pass" for r in res["compare"]) else "FAIL")]
+    lines = [f"VERIFY {res['task']}: {overall(res)}"]
     for r in res["compare"]:
         lines.append(f"- {r['kind']}: orc {r['orc']} | tự khai pass {r['agent_pass'] or '-'} | {r['verdict']}")
     if res["outside"]:
@@ -348,6 +385,10 @@ def render(res: dict) -> str:
         lines.append("Nghi bí mật: " + "; ".join(res["secrets"]))
     if res["guard"]:
         lines.append("Không chạy lệnh vì đổi: " + ", ".join(res["guard"]))
+    for r in res["runs"]:
+        if r.get("result") == "env":
+            lines.append(f"ENVIRONMENT_FAILURE {r['name']}: {r.get('env_sign')} — lệnh không chạy được, chưa kiểm "
+                         f"(log {r.get('log')})")
     if res["risky"]:
         lines.append("Chạm risk_paths: " + ", ".join(res["risky"]))
     lines.append("EVD: " + ", ".join(res["evidence"]))

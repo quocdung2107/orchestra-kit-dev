@@ -20,6 +20,8 @@ nội dung plan/code; mọi ghi trạng thái đi qua `orc`. Truyền ID cho sub
 5. Lưu nguyên envelope YAML subagent trả về vào state:
    `orc apply - <<'YAML'` … `YAML`. Đọc dòng `ROUTE:`.
 6. Báo Dung: đường dẫn `.orchestra/artifacts/<ART-ID>.md`, summary (`orc show <ART-ID> --meta`),
-   các quyết định chờ duyệt. Hỏi Dung duyệt plan. **Dừng chờ.**
-7. Khi Dung duyệt: `orc advance <ART-ID> --to accepted`, `orc new task --from <ART-ID>`, `orc next`.
+   các quyết định chờ duyệt. `orc approval request <ART-ID> <các DEC proposed của plan>` và gửi Dung nguyên văn
+   dòng `orc:approve ...` nó in ra. **Dừng chờ.**
+7. Khi Dung gõ đúng dòng đó: `orc approve <ART-ID> <các DEC>` (plan + DEC thành accepted — H7),
+   `orc new task --from <ART-ID>`, `orc next`.
    Dung yêu cầu sửa → gọi lại researcher với cùng TASK/ART kèm ý của Dung (1–2 câu).

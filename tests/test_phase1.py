@@ -122,7 +122,8 @@ class TestSetAndAdvance(Base):
         with self.assertRaises(oc.OrcError):
             oc.advance(self.root, art, "draft")
         d = oc.new_decision(self.root, "x")["id"]
-        oc.advance(self.root, d, "accepted")
+        with self.assertRaises(oc.OrcError):  # Phase 4 (H7): DEC chỉ accepted qua `orc approve`
+            oc.advance(self.root, d, "accepted")
         with self.assertRaises(oc.OrcError):
             oc.advance(self.root, d, "proposed")
 

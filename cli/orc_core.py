@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as _dt
-import fnmatch
 import hashlib
 import json
 import os
@@ -71,7 +70,7 @@ ADVANCE_MOVES = {
     "task": {("pending", "dispatched"), ("ready", "dispatched"), ("dispatched", "ready"),
              ("blocked", "ready"), ("failed", "ready"), ("done", "dispatched")},
     "artifact": {("draft", "accepted"), ("draft", "rejected")},
-    "decision": {("proposed", "accepted")},
+    # DEC: không có chuyển tay — accepted chỉ qua `orc approve` với token của Dung (H7, Phase 4)
 }
 
 FIELDS = {
@@ -264,8 +263,24 @@ def write_active(root: Path) -> None:
                            "write_scope": as_list(t.get("write_scope")),
                            "artifacts": [p for a in arts if isinstance(a, dict) and a.get("task") == t["id"]
                                          for p in as_list(a.get("paths"))]})
+    # File .orchestra/ mà agent được ghi (ngoại lệ của deny_always): artifact/context của task chưa done,
+    # handoff của phiên đang mở (result pending). Mọi thứ khác trong .orchestra/ chỉ `orc` ghi.
+    open_tasks = {t["id"] for t in tasks if isinstance(t, dict) and t.get("status") != "done"}
+    writable = [f"{ORC_DIR}/artifacts/{a['id']}.md" for a in arts
+                if isinstance(a, dict) and a.get("task") in open_tasks]
+    writable += [f"{ORC_DIR}/contexts/{c['id']}.md" for c in load_registry(root, "context")
+                 if isinstance(c, dict) and c.get("task") in open_tasks]
+    for sid in session_ids(root):
+        try:
+            fm, _ = split_frontmatter(read_text(content_path(root, sid)))
+        except Exception:  # noqa: BLE001 - frontmatter hỏng: không cho ghi
+            continue
+        if (fm or {}).get("result") == "pending":
+            writable.append(f"{ORC_DIR}/sessions/{sid}.md")
+    protected = as_list((load_config(root).get("guard") or {}).get("protected_paths"))
     write_text(orc(root) / "runtime" / "active.json",
-               json.dumps({"version": 1, "tasks": active}, ensure_ascii=False, indent=1) + "\n")
+               json.dumps({"version": 2, "tasks": active, "writable": sorted(writable), "protected": protected},
+                          ensure_ascii=False, indent=1) + "\n")
 
 
 def journal_errors(root: Path) -> list:
@@ -597,7 +612,13 @@ def guarded_set(root: Path, id_: str, changes: dict) -> dict:
     bad = sorted(k for k in changes if k in STATE_FIELDS or k.startswith("approved_"))
     if bad and kind_of(id_) != "session":
         raise OrcError(f"`orc set` không đổi được {bad}; trạng thái chỉ đổi qua "
-                       f"`orc advance {id_} --to <trạng thái>` hoặc `orc apply`")
+                       f"`orc advance {id_} --to <trạng thái>`, `orc apply` hoặc `orc approve`")
+    if kind_of(id_) == "decision":  # H7: nội dung DEC đã có hiệu lực là authority của Dung
+        _, _, d = find_entry(root, id_)
+        locked = sorted(k for k in changes if k in ("summary", "scope", "supersedes"))
+        if d.get("status") != "proposed" and locked:
+            raise OrcError(f"{id_} đang {d.get('status')}: không sửa {locked}; tạo DEC mới `--supersedes {id_}` "
+                           "rồi để Dung duyệt")
     return set_fields(root, id_, changes)
 
 
@@ -608,6 +629,9 @@ def advance(root: Path, id_: str, to: str) -> dict:
         raise OrcError(f"{id_}: {kind} không có trạng thái để advance")
     _, _, e = find_entry(root, id_)
     frm = e.get("status")
+    if kind == "artifact" and e.get("type") == "research" and to == "accepted":
+        raise OrcError(f"{id_}: ART research ghi nhận câu trả lời của Dung — chỉ accepted qua "
+                       f"`orc approval request {id_} ...` + Dung gõ `orc:approve ...` + `orc approve` (H7)")
     if (frm, to) not in ADVANCE_MOVES[kind]:
         allowed = sorted(t for f, t in ADVANCE_MOVES[kind] if f == frm)
         raise OrcError(f"{id_}: không chuyển được {frm} → {to}"
@@ -1041,12 +1065,9 @@ def parse_envelope(text: str) -> dict:
 
 
 def _in_scope(path: str, scope: list) -> bool:
-    p = path.replace("\\", "/").lstrip("./")
-    for s in scope:
-        s = str(s).replace("\\", "/").lstrip("./")
-        if fnmatch.fnmatch(p, s) or p == s.rstrip("/") or p.startswith(s.rstrip("/") + "/"):
-            return True
-    return False
+    """write_scope khớp kiểu gitignore, neo ở gốc dự án (FINDING-3, Phase 4): `*` không qua `/`."""
+    from orc_guard import match_path  # noqa: PLC0415 - cùng thư mục cli/, chỉ stdlib
+    return match_path(path, [str(s) for s in scope])
 
 
 def apply_envelope(root: Path, env: dict) -> str:
@@ -1724,12 +1745,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     s.add_argument("--to", required=True)
 
-    s = sub.add_parser("approve", help="ghi phê duyệt khi Dung đã gõ `orc:approve TASK NONCE`")
-    s.add_argument("id")
+    s = sub.add_parser("approve", help="ghi phê duyệt khi Dung đã gõ `orc:approve ID,... NONCE` (DEC/ART → accepted)")
+    s.add_argument("id", nargs="+")
 
-    s = sub.add_parser("approval", help="request: sinh nonce + dòng Dung phải gõ | check: còn hiệu lực?")
+    s = sub.add_parser("approval", help="request ID...: sinh nonce + dòng Dung phải gõ | check TASK: còn hiệu lực?")
     s.add_argument("action", choices=("request", "check"))
-    s.add_argument("id")
+    s.add_argument("id", nargs="+")
 
     s = sub.add_parser("verify", help="V1/V2 tất định: scope bằng git + lệnh kiểm từ checkpoint (exit 6 = fail)")
     s.add_argument("id")
@@ -1809,7 +1830,28 @@ def run(argv=None) -> int:
     root = require_root(start)
     lock = (state_lock(root) if args.cmd in MUTATING else contextlib.nullcontext())
     with lock, journal_context(actor=f"orc {args.cmd}"):
-        return _run(root, args)
+        try:
+            return _run(root, args)
+        except OrcError as exc:
+            if args.cmd in MUTATING or args.cmd == "verify":
+                with (contextlib.nullcontext() if args.cmd in MUTATING else state_lock(root)):
+                    record_rejection(root, args, exc)
+            raise
+
+
+def record_rejection(root: Path, args, exc: Exception) -> None:
+    """F2: lệnh ghi state bị từ chối ⇒ 1 dòng `rejected` trong journal (chuỗi hash). Chỉ quan sát:
+    lỗi vẫn ném lại nguyên vẹn, mã thoát không đổi. Ghi journal hỏng thì bỏ qua (không che lỗi gốc)."""
+    reason = str(exc)
+    op = " ".join(str(x) for x in (args.cmd, getattr(args, "action", None) or getattr(args, "type", None)) if x)
+    task = getattr(args, "task_hint", None) or getattr(args, "id", None) or getattr(args, "task", None)
+    task = ",".join(task) if isinstance(task, list) else task
+    try:
+        with journal_context(extra={}):
+            append_journal(root, [{"event": "rejected", "task": task, "operation": op, "reason": reason[:500],
+                                   "reason_hash": hashlib.sha256(reason.encode("utf-8")).hexdigest()[:16]}])
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # Lệnh ghi state/registry: chạy trong khoá (H5)
@@ -1831,20 +1873,20 @@ def _run(root: Path, args) -> int:
     elif args.cmd == "approve":
         import orc_approval  # noqa: PLC0415
         req = orc_approval.approve(root, args.id)
-        print(f"{args.id}: đã duyệt (nonce {req['nonce']}, lời Dung {req['prompt_sha256'][:12]}…)")
+        print(f"{','.join(req['ids'])}: đã duyệt (nonce {req['nonce']}, lời Dung {req['prompt_sha256'][:12]}…)")
     elif args.cmd == "approval":
         import orc_approval  # noqa: PLC0415
         if args.action == "request":
             print(orc_approval.request(root, args.id))
         else:
-            ok, why = orc_approval.check(root, args.id)
+            ok, why = orc_approval.check(root, args.id[0])
             print(("OK: " if ok else "KHÔNG: ") + why)
             return 0 if ok else 3
     elif args.cmd == "verify":
         import orc_verify  # noqa: PLC0415
         res = orc_verify.verify(root, args.id)
         sys.stdout.write(orc_verify.render(res))
-        return 0 if all(r["orc"] == "pass" for r in res["compare"]) else 6
+        return orc_verify.EXIT_CODE[orc_verify.overall(res)]  # 0 PASS, 6 FAIL, 7 INCOMPLETE (môi trường)
     elif args.cmd == "show":
         sys.stdout.write(show(root, args.id, meta=args.meta, pack=args.pack))
     elif args.cmd == "next":
@@ -1852,6 +1894,8 @@ def _run(root: Path, args) -> int:
     elif args.cmd == "apply":
         text = (sys.stdin.buffer.read().decode("utf-8-sig") if args.file == "-"
                 else read_text(Path(args.file)))
+        m = re.search(r"^\s*task_id:\s*['\"]?([A-Z]+-\d+)", text, re.M)
+        args.task_hint = m.group(1) if m else None  # cho dòng journal `rejected` (F2)
         print(apply_envelope(root, parse_envelope(text)))
     elif args.cmd == "handoff":
         if args.action == "open":
@@ -1928,6 +1972,9 @@ def _cmd_new(root: Path, a) -> str:
     if a.type == "decision":
         if not a.summary:
             raise OrcError("new decision cần --summary")
+        if (a.status or "proposed") != "proposed":
+            raise OrcError(f"`orc new decision --status {a.status}` bị từ chối: LLM chỉ đề xuất (proposed); "
+                           "DEC thành accepted qua `orc approval request DEC-x` + Dung gõ `orc:approve ...` (H7)")
         return new_decision(root, a.summary, scope=a.scope, supersedes=a.supersedes,
                             status=a.status or "proposed")["id"]
     if a.type == "context":
