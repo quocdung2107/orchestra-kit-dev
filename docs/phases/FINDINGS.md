@@ -67,3 +67,24 @@ Mỗi FINDING: vấn đề, bằng chứng, lựa chọn, đề xuất. Không t
   (c) chấp nhận: đã thử v0.2 thì không quay lui dữ liệu, chỉ quay lui kit.
 - **Đề xuất:** (a), gộp vào script chuyển registry của Phase 4 (v0.2 đã định giữ `state.v0.1/`). Trước khi Dung
   chạy thử Phase 3 trên `D:\WMS`: commit `.orchestra/` để quay lui bằng git được.
+
+## FINDING-6 — Bash allowlist của guard không dùng được như thiết kế: 110/110 "lẽ ra chặn" đều không phải thao tác nguy hiểm (Phase 3 shadow)
+
+- **Vấn đề:** Shadow trên D:\WMS (17 task thật TASK-0029..0045, 12 task coder, 511 tool call) — guard lẽ ra chặn 110
+  lần, **0 lần** là thao tác nguy hiểm hay ngoài phạm vi:
+  - 68: bộ tách lệnh ngây thơ (`&& || ; |`) cắt vào giữa chuỗi trích dẫn / heredoc / regex `\|` (envelope YAML
+    `echo "$(cat <<'YAML' …)" | orc apply -`, `grep -n "a\|b"`), và subshell `( … )` → đoạn rác bị coi là lệnh lạ.
+  - 38: ghi file bằng Bash (`cat > f <<EOF`, `python - <<EOF … open(f,'w')`, `sed -i`) — đúng chính sách N1
+    (Bash không được ghi), nhưng mọi đích đều nằm trong write_scope hoặc artifact của task: đây là cách agent làm việc thường ngày.
+  - 2: lệnh chỉ đọc thiếu trong allowlist (`cut`, `git check-ignore`).
+  - 1: `deny_always: supabase db push` khớp chữ trong **nội dung** migration (chú thích), không phải lệnh.
+  - 1: Write vào scratchpad tạm của Claude (ngoài dự án).
+- **Bằng chứng:** `docs/phases/PHASE-3-shadow.md`, dữ liệu thô `docs/phases/shadow-raw/`.
+- **Hệ quả:** bật enforce với bảng này sẽ chặn gần như mọi vòng coder/reviewer (W2.2 mệt mỏi phê duyệt; người dùng
+  sẽ tắt guard). Guard dựa chuỗi lệnh Bash không đáng tin để quyết định ghi file — đúng như W1.2 đã cảnh báo.
+- **Lựa chọn:** (a) guard Bash chỉ giữ `deny_always` (khớp trên lệnh đã bỏ phần heredoc/chuỗi), bỏ allowlist theo
+  mode; phạm vi ghi dựa vào V2 (`orc verify` git diff) — ADJUSTMENTS #8 "mutation boundary + detection"; (b) parser
+  shell thật (shlex/bashlex) + suy đích ghi của `cat >`/`sed -i` để so write_scope — phức tạp, vẫn lách được qua
+  `python -c`; (c) giữ allowlist, sửa prompt agent dùng Edit/Write thay vì Bash heredoc.
+- **Đề xuất:** (a) + phần nhỏ của (c) (agent ưu tiên Edit/Write); Edit/Write vẫn kiểm write_scope như hiện tại
+  (0 sai trên 38 lần Edit/Write). Cần Dung quyết trước Phase 4 vì đổi bảng N1 của v0.2.
