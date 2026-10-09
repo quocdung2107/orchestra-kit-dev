@@ -31,7 +31,10 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(self.lv(["a/x.ts"], 1, {**NO, "schema_change": True}), 3)     # form L3
         self.assertEqual(self.lv([f"a/b/{i}.ts" for i in range(16)], 10, NO), 3)      # > 15 file
         self.assertEqual(self.lv(["a/b/x.ts"], 401, NO), 3)                            # > 400 dòng
-        self.assertEqual(self.lv(["a/1/x", "b/1/x", "c/1/x", "d/1/x"], 4, NO), 3)      # > 3 module
+        # Tổ hợp B (Dung chốt): > 3 module ⇒ L3 chỉ khi diff > 120 dòng; không thì luật L2 (> 1 module)
+        self.assertEqual(self.lv(["a/1/x", "b/1/x", "c/1/x", "d/1/x"], 4, NO), 2)
+        self.assertEqual(self.lv(["a/1/x", "b/1/x", "c/1/x", "d/1/x"], 121, NO), 3)
+        self.assertEqual(self.lv(["a/1/x", "b/1/x", "c/1/x", "d/1/x"], None, NO), 2)  # lần 2 chưa biết dòng
         self.assertEqual(self.lv(["a/b/x.ts"], 1, {**NO, "user_visible": True}), 2)    # form L2
         self.assertEqual(self.lv(["a/1/x", "b/1/x"], 4, NO), 2)                        # > 1 module
         self.assertEqual(self.lv([f"a/b/{i}" for i in range(6)], 4, NO), 2)           # > 5 file
@@ -39,6 +42,17 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(self.lv(["a/b/x", "a/b/y", "a/b/z"], 30, NO), 1)             # 3 file 1 module
         self.assertEqual(self.lv(["a/b/x", "a/b/y"], 40, NO), 0)                       # L0 đủ điều kiện
         self.assertEqual(self.lv(["a/b/x", "a/b/y"], 41, NO), 1)                       # > 40 dòng ⇒ không L0
+
+    def test_risk_keywords(self):
+        lv = lambda text: ot.classify(["a/b/x", "a/b/y"], 10, NO, self.cfg, text=text)[0]  # noqa: E731
+        self.assertEqual(lv("B1 chống CSV injection khi xuất CSV"), 3)
+        self.assertEqual(lv("Sửa lỗi Đăng Nhập bằng OTP"), 3)          # tiếng Việt, không phân biệt hoa/thường
+        self.assertEqual(lv("Thêm RLS cho bảng orders"), 3)
+        self.assertEqual(lv("Dán {{ .Token }} vào template email"), 0)  # không có "token" trong danh sách
+        self.assertEqual(lv("Sửa layout trang authors"), 0)             # ASCII khớp nguyên từ: authors ≠ auth
+        self.assertEqual(lv("chặn file Excel > 20 MB"), 0)
+        self.cfg["risk_keywords_l3"] = []
+        self.assertEqual(lv("csv injection"), 0)                        # tắt được qua config
 
     def test_never_default_l0(self):
         self.assertEqual(self.lv(None, None, None), 1)              # không có gì

@@ -63,7 +63,8 @@ def replay(project: Path, app_repo: str | None, mapping: dict, module_roots) -> 
         coders = [t for t in tasks if req_of[t["id"]] == r["root"] and oc.agent_for(t["owner"]) == "coder"]
         scope = sorted({str(s) for t in coders for s in oc.as_list(t.get("write_scope"))})
         s2_files = sorted({f for p in scope for f in ([x for x in files_now if og.match_path(x, [p])] or [p])})
-        l2, rules2 = ot.classify(s2_files if scope else None, None, None, cfg)
+        # Chỉ tiêu đề: tóm tắt trong dữ liệu cũ viết SAU khi làm (kết quả), không phải lời yêu cầu lúc triage
+        l2, rules2 = ot.classify(s2_files if scope else None, None, None, cfg, text=r["title"])
         f3, n3 = [], 0
         for c in r["commits"]:
             repo, sha = c.split(":", 1)
@@ -72,7 +73,8 @@ def replay(project: Path, app_repo: str | None, mapping: dict, module_roots) -> 
             f3 += files
             n3 += lines
         f3 = sorted(set(f3))
-        l3, rules3 = ot.classify(f3 if r["commits"] else None, n3 if r["commits"] else None, None, cfg)
+        l3, rules3 = ot.classify(f3 if r["commits"] else None, n3 if r["commits"] else None, None, cfg,
+                                 text=r["title"])
         mods = len({ot.module_of(f, cfg["module_roots"]) for f in f3}) if f3 else 0
         rows.append({"root": r["root"], "title": r["title"], "coders": len(coders), "scope_files": len(s2_files),
                      "l2": l2, "rules2": rules2, "files3": len(f3), "lines3": n3, "modules3": mods, "l3": l3,
@@ -80,7 +82,9 @@ def replay(project: Path, app_repo: str | None, mapping: dict, module_roots) -> 
     return rows
 
 
-def render(rows: list) -> str:
+def render(rows: list, dung: dict | None = None) -> str:
+    """dung: {TASK gốc: 'L3'} — mức Dung tự đánh giá; có thì in thêm lệch và số lần hạ thấp L3 (cổng v0.2)."""
+    dung = dung or {}
     out = ["# Phase 5 — triage hồi cứu trên yêu cầu thật (shadow, chỉ đọc)", "",
            "Lần 2 = write_scope các task coder; lần 3 = commit thật (bỏ `.orchestra/`). Không có form khai báo trong dữ",
            "liệu cũ ⇒ chỉ tín hiệu máy (form thật có thể **nâng** thêm, không hạ). Cột cuối để Dung điền.", "",
@@ -91,7 +95,13 @@ def render(rows: list) -> str:
         top = "; ".join(why for lv, why in main if lv == f"L{r['final']}")[:120] or "; ".join(w for _, w in main)[:120]
         out.append(f"| {r['root']} {oc._short(r['title'], 40)} | {r['coders']} | {r['scope_files']} → L{r['l2']} "
                    f"| {r['files3']} / {r['lines3']} / {r['modules3']} → L{r['l3']} | **L{r['final']}** "
-                   f"| {top.replace('|', '/')} | L? |")
+                   f"| {top.replace('|', '/')} | {dung.get(r['root'], 'L?')} |")
+    known = [r for r in rows if r["root"] in dung]
+    if known:
+        dev = [r["root"] for r in known if f"L{r['final']}" != dung[r["root"]]]
+        under = [r["root"] for r in known if dung[r["root"]] == "L3" and r["final"] < 3]
+        out += ["", f"**So với Dung: lệch {len(dev)}/{len(known)}** {dev or ''}; "
+                    f"**hạ thấp L3: {len(under)}** {under or ''}. Cổng v0.2: lệch ≤ 1/10 và không hạ thấp L3."]
     return "\n".join(out) + "\n"
 
 
@@ -103,9 +113,10 @@ def main(argv=None) -> int:
     ap.add_argument("--app-repo")
     ap.add_argument("--map", nargs="*", default=[])
     ap.add_argument("--module-roots", nargs="*", default=[])
+    ap.add_argument("--dung", nargs="*", default=[], help="mức Dung đánh giá: TASK-0001=L3 ...")
     a = ap.parse_args(argv)
     rows = replay(Path(a.project), a.app_repo, dict(m.split("=", 1) for m in a.map), a.module_roots)
-    sys.stdout.write(render(rows))
+    sys.stdout.write(render(rows, dict(d.split("=", 1) for d in a.dung)))
     return 0
 
 

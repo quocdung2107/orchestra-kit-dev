@@ -60,3 +60,20 @@ số dòng lần 3 tính cả file test/tài liệu; bảng hồi cứu đếm f
 
 AC-5.1 … AC-5.6 đạt. **Cổng v0.2 (lệch ≤ 1/10 so với Dung, không hạ thấp L3) — boundary:** cần Dung điền mức tự đánh
 giá cho các yêu cầu (bảng hồi cứu: 8 yêu cầu) và/hoặc chạy shadow sống sau khi release K.
+
+## Hiệu chỉnh theo Dung (2026-10-09 13:39: "Tổ hợp: B, Từ khoá: có")
+
+Mức Dung tự đánh giá 8 yêu cầu: L3, L2, L3, L3, L3, L1, L3, L3. Luật ban đầu lệch 2/8, hạ thấp L3 1 lần (TASK-0001
+chống CSV injection: việc bảo mật không có dấu hiệu máy đo được).
+- **B:** "> 3 module ⇒ L3" chỉ khi diff > 120 dòng (`l3.modules_min_lines: 120`); test vẫn tính module riêng.
+- **Từ khoá rủi ro ⇒ L3** (`risk_keywords_l3`, chỉ nâng) trên tiêu đề + tóm tắt yêu cầu: bảo mật, security, injection,
+  xss, csrf, auth, đăng nhập, phân quyền, quyền truy cập, rls, mật khẩu, password, secret, api key, xoá/xóa dữ liệu,
+  migration. Từ ASCII khớp nguyên từ. **Bỏ "token"** khỏi danh sách gợi ý: tóm tắt TASK-0028 có `{{ .Token }}` (biến
+  template) ⇒ báo nhầm L3.
+- Bảng hồi cứu chỉ khớp từ khoá trên **tiêu đề** (tóm tắt trong dữ liệu cũ viết sau khi làm xong).
+
+Kết quả hồi cứu sau hiệu chỉnh (`PHASE-5-triage-replay.md`): **lệch 0/8, hạ thấp L3: 0**.
+**Giới hạn của con số này:** luật được chỉnh trên chính 8 mẫu ⇒ đây là tập hiệu chỉnh, không phải kiểm độc lập; cổng
+v0.2 cần 10 task. Kiểm độc lập cần triage chạy sống trên task mới (sau khi release K) hoặc thêm mẫu mới.
+
+Test: **164 passed + 1 skipped (Ran 165)** — thêm test từ khoá, luật B.

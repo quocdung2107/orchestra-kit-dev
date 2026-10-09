@@ -8,6 +8,7 @@ không mặc định an toàn. Shadow: ghi journal `event: triage`, không ghi `
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -22,10 +23,16 @@ DEFAULTS = {
     "risk_paths_l3": ["**/migrations/", "supabase/", "**/auth/", "**/*rls*", "**/.github/", ".claude/", ".orchestra/",
                       "**/package.json", "**/package-lock.json", "**/pnpm-lock.yaml", "**/yarn.lock",
                       "**/.env", "**/.env.*"],
-    "l3": {"files": 15, "lines": 400, "modules": 3},
+    # Dung chốt 2026-10-09 (tổ hợp B): "> 3 module ⇒ L3" chỉ khi diff > 120 dòng (modules_min_lines)
+    "l3": {"files": 15, "lines": 400, "modules": 3, "modules_min_lines": 120},
     "l2": {"files": 5, "lines": 120, "modules": 1},
     "l0": {"files": 2, "lines": 40},
     "module_roots": [],
+    # Dung chốt 2026-10-09: từ khoá rủi ro trong tiêu đề/tóm tắt yêu cầu ⇒ L3 (lưới an toàn khi form khai thiếu; chỉ
+    # nâng). Không có "token": trùng biến template (`{{ .Token }}`) ⇒ báo nhầm; thay bằng api key/secret/mật khẩu.
+    "risk_keywords_l3": ["bảo mật", "security", "injection", "xss", "csrf", "auth", "đăng nhập", "phân quyền",
+                         "quyền truy cập", "rls", "mật khẩu", "password", "secret", "api key", "xoá dữ liệu",
+                         "xóa dữ liệu", "migration"],
 }
 
 
@@ -51,10 +58,25 @@ def module_of(path: str, roots) -> str:
     return "/".join(dirs[:2]) or "."
 
 
-def classify(files, lines, form, cfg) -> tuple:
-    """(level, [luật khớp]). files: list đường dẫn hoặc None (chưa biết); lines: int hoặc None; form: dict hoặc None."""
+def keyword_hits(text: str, keywords) -> list:
+    """Từ khoá rủi ro (không phân biệt hoa/thường). Từ ASCII khớp nguyên từ; từ tiếng Việt khớp chuỗi con."""
+    low = (text or "").lower()
+    hits = []
+    for kw in keywords or []:
+        k = str(kw).lower()
+        if (re.search(rf"\b{re.escape(k)}\b", low) if k.isascii() else k in low):
+            hits.append(k)
+    return hits
+
+
+def classify(files, lines, form, cfg, text: str = "") -> tuple:
+    """(level, [luật khớp]). files: list đường dẫn hoặc None (chưa biết); lines: int hoặc None; form: dict hoặc None;
+    text: tiêu đề + tóm tắt yêu cầu (luật từ khoá)."""
     rules = []
     form = form or {}
+    kws = keyword_hits(text, cfg.get("risk_keywords_l3"))
+    if kws:
+        rules.append(("L3", f"từ khoá rủi ro: {', '.join(kws)}"))
     if files:
         risky = [f for f in files if orc_guard.match_path(f, cfg["risk_paths_l3"])]
         if risky:
@@ -64,7 +86,8 @@ def classify(files, lines, form, cfg) -> tuple:
             rules.append(("L3", f"form: {k}"))
     n_files = len(files) if files is not None else None
     n_mod = len({module_of(f, cfg["module_roots"]) for f in files}) if files else None
-    if (n_files or 0) > cfg["l3"]["files"] or (lines or 0) > cfg["l3"]["lines"] or (n_mod or 0) > cfg["l3"]["modules"]:
+    many_mod = (n_mod or 0) > cfg["l3"]["modules"] and (lines or 0) > cfg["l3"].get("modules_min_lines", 0)
+    if (n_files or 0) > cfg["l3"]["files"] or (lines or 0) > cfg["l3"]["lines"] or many_mod:
         rules.append(("L3", f"kích thước: {n_files} file, {lines} dòng, {n_mod} module"))
     for k in FORM_L2:
         if form.get(k) is True:
@@ -151,7 +174,7 @@ def run(root: Path, tid: str, stage: int, form=None, paths=None) -> dict:
         files, lines = diff_stats(root, [k["id"] for k in kids])
     else:
         raise oc.OrcError("stage phải là 1, 2 hoặc 3")
-    computed, rules = classify(files, lines, form, cfg)
+    computed, rules = classify(files, lines, form, cfg, text=f"{t.get('title', '')}\n{t.get('summary', '')}")
     prev = current(root, tid)
     level = max(computed, prev) if prev is not None else computed
     rec = {"event": "triage", "stage": stage, "level": level, "computed": computed, "previous": prev,
