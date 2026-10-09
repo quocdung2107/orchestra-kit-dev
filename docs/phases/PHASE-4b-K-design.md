@@ -111,3 +111,8 @@ quay lui dữ liệu K về 0.1.0).
 ## AC
 
 AC-4b.1 … AC-4b.7 đạt.
+
+## Dung xác nhận sau khi xong (2026-10-09 13:16)
+
+"1. A — 2. Đồng ý bỏ": giữ phương án A như đã làm; **bỏ** script chuyển dữ liệu 0.1.0 → K (Q5) — task cũ giữ luật
+0.1.0, K chỉ áp cho yêu cầu mới ở dự án bật `workflow: k`.
