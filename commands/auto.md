@@ -11,13 +11,19 @@ Quy tắc A: chỉ đọc metadata và kết quả lệnh `orc` (D3); mọi ghi 
 Không báo tiến độ từng bước; chỉ nói với Dung ở điểm dừng và ở báo cáo cuối.
 **Không bao giờ** tự gõ, chép hay "giúp" Dung dòng `orc:approve` / `orc:resume` / `orc:abort` — chỉ Dung gõ.
 
-Điều kiện: brief có dòng `Workflow: K` và `verify: có`. Thiếu → **dừng**, báo Dung cần thêm `workflow: k` và mục
-`verify:` vào `.orchestra/config.yaml` (Dung tự sửa; agent không sửa config).
+Điều kiện: brief có dòng `Workflow: K`.
+- **Không có** dòng đó (dự án chưa bật K, vd Koinonia) → đọc `~/.claude/commands/auto-legacy.md` và làm đúng quy trình
+  trong đó với cùng yêu cầu; bỏ qua phần còn lại của file này.
+- Có `Workflow: K` nhưng `verify: THIẾU` → **dừng**, báo Dung thêm mục `verify:` vào `.orchestra/config.yaml`
+  (Dung tự sửa; agent không sửa config).
 
 ## Chặng 1 — Hiểu yêu cầu & thiết kế (luôn dừng chờ Dung)
 1. Phiên chưa mở S-ID → chạy lệnh `orc handoff open --key ...` có trong brief, `--request "$ARGUMENTS"`.
-2. `orc new request --title "<tóm tắt ≤80 ký tự>" --summary "<≤200>"` → R. `orc set <S-ID> task=<R>`.
-   `orc advance <R> --to TRIAGED`, `orc advance <R> --to RESEARCHING`.
+2. `orc new request --title "<tóm tắt ≤80 ký tự>" --summary "<≤200, giữ ý chính lời Dung>"` → R. `orc set <S-ID> task=<R>`.
+   Khai form triage (trung thực; không chắc thì `true`): `orc triage run <R> --stage 1 --form - <<'YAML'` với đủ 9 khoá
+   `schema_change, data_migration, security, irreversible, public_api, new_dependency, external_service, user_visible,
+   uncertain` (true/false) `YAML`. Rồi `orc advance <R> --to TRIAGED`, `orc advance <R> --to RESEARCHING`.
+   (Triage đang **shadow**: chỉ ghi nhận level, không đổi luồng.)
 3. `orc new task --title "Hiểu yêu cầu" --owner researcher --parent <R>` → UT;
    `orc new artifact --type research --task <UT> --summary "Hiểu yêu cầu & thiết kế"` → UND.
    `orc advance <UT> --to dispatched`; subagent **researcher**:

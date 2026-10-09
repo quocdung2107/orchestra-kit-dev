@@ -85,6 +85,9 @@ class TestTriageCli(KBase):
         self.ok("triage", "downgrade", R, "--to", "1", "--reason", "chỉ sửa chú thích")
         self.assertIn(f"{R}: level 1", self.ok("triage", "show", R))
         self.assertIsNone(oc.find_entry(self.root, R)[2].get("level"))  # shadow: không ghi task.level
+        out = self.ok("triage", "run", R, "--stage", "1", "--form", "-",
+                      stdin="".join(f"{k}: false\n" for k in ot.FORM_KEYS))
+        self.assertIn("lần 1", out)  # form qua stdin (dùng trong /auto)
         bad = self.root / "bad.yaml"
         bad.write_text("la: true\n", encoding="utf-8")
         self.no("triage", "run", R, "--stage", "1", "--form", str(bad))

@@ -227,7 +227,12 @@ def render(rec: dict) -> str:
 
 
 def load_form(path) -> dict:
-    data = oc._yaml().safe_load(Path(path).read_text(encoding="utf-8")) if path else None
+    if path == "-":
+        import sys  # noqa: PLC0415
+        text = sys.stdin.buffer.read().decode("utf-8-sig")
+    else:
+        text = Path(path).read_text(encoding="utf-8") if path else None
+    data = oc._yaml().safe_load(text) if text is not None else None
     if data is None:
         return None
     if not isinstance(data, dict) or set(data) - set(FORM_KEYS):
