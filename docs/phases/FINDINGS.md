@@ -99,3 +99,10 @@ Mỗi FINDING: vấn đề, bằng chứng, lựa chọn, đề xuất. Không t
 | 4 lỗi môi trường ≠ lỗi dự án | **đã sửa** (`ENVIRONMENT_FAILURE`, INCOMPLETE exit 7); lint hôm nay chạy được |
 | 5 quay lui v0.2 → 0.1.0 | **đã sửa** (`tools/rollback_v02_to_v01.py`) |
 | 6 Bash allowlist | **đã sửa** theo nguyên tắc Dung chốt: Bash không phải semantic sandbox |
+
+## FINDING-7 — State machine K giả định đã gộp agent (Phase 7); áp lên mô hình nhiều task hiện tại là quyết định chưa có trong thiết kế (Phase 4b)
+
+- **Vấn đề:** v0.2 K mô tả một task đi trọn triage → research → plan → implement → verify do Main chạy theo mode.
+  Kit hiện vẫn tách task gốc / plan / coder / review (subagent). Triage (level) là Phase 5, chưa có.
+- **Bằng chứng:** `docs/design/orchestra-redesign-v0.2.md` mục K1–K2, N4, N5; `commands/auto.md`.
+- **Lựa chọn và đề xuất:** `docs/phases/PHASE-4b-K-design.md` (khuyên phương án A + Q2–Q5). Chờ Dung chốt.
