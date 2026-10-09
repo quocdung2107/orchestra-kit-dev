@@ -337,6 +337,9 @@ def verify(root: Path, tid: str, scope_override=None) -> dict:
     with oc.state_lock(root):  # gắn EVD vào task để reviewer thấy trong `orc show --pack`
         _, _, task = oc.find_entry(root, tid)
         oc.set_fields(root, tid, {"outputs": oc.as_list(task.get("outputs")) + evds})
+        # Dòng journal `verify`: cổng K đọc lần verify mới nhất SAU lần nộp (thứ tự journal là thứ tự thật)
+        with oc.journal_context(extra={"event": "verify", "evidence_ids": evds}):
+            oc.append_journal(root, [{"id": tid}])
     return {"task": tid, "evidence": evds, "scope_ok": scope_ok, "outside": outside, "secrets": secrets,
             "risky": risky, "guard": guard, "runs": runs,
             "compare": compare(root, tid, dict([("scope", "pass" if scope_ok else "fail")]

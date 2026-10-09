@@ -50,7 +50,10 @@ EVD_RESULTS = ("pass", "fail", "info")
 CTX_SOURCES = ("manual", "graph", "fallback")
 GRAPH_STATES = ("none", "fresh", "stale", "degraded", "locked", "unavailable")
 CTX_MAX_FILES = 12
-FAILURE_CLASSES = ("IMPL_BUG", "SPEC_GAP", "DECISION_CONFLICT", "REGRESSION")
+FAILURE_CLASSES = ("IMPL_BUG", "SPEC_GAP", "DECISION_CONFLICT", "REGRESSION",
+                   # v0.2 I1 (Phase 4b): từ orc verify và cổng K
+                   "TEST_FAILURE", "LINT_FAILURE", "BUILD_FAILURE", "TYPECHECK_FAILURE", "SCOPE_VIOLATION",
+                   "ENVIRONMENT_FAILURE", "APPROVAL_MISSING")
 ENV_STATUS = ("done", "partial", "blocked", "failed")
 HANDOFF_RESULTS = ("done", "partial", "blocked")
 HANDOFF_SECTIONS = ("Đã làm", "File thay đổi", "Quyết định phát sinh",
@@ -64,7 +67,8 @@ LOCK_WAIT = 10.0          # giây chờ khoá state (H5)
 LOCK_STALE = 120.0        # khoá cũ hơn thế coi là bị bỏ rơi (process chết)
 JOURNAL_FILE = "journal.jsonl"
 # Trường trạng thái: `orc set` không được đổi; chỉ `orc advance` / `orc apply` / `orc next` (H1, K3)
-STATE_FIELDS = ("status", "level", "risk_flags", "attempts", "failure_class", "needs_user", "resume_status")
+STATE_FIELDS = ("status", "level", "risk_flags", "attempts", "failure_class", "needs_user", "resume_status",
+                "parent", "workflow", "recovery_action")
 # Chuyển trạng thái bằng tay của 0.1.0 qua `orc advance` (state machine K thay ở Phase 4)
 ADVANCE_MOVES = {
     "task": {("pending", "dispatched"), ("ready", "dispatched"), ("dispatched", "ready"),
@@ -80,6 +84,7 @@ FIELDS = {
         "acceptance": [], "write_scope": [], "attempts": 0, "summary": "",
         "failure_class": None, "needs_user": False, "resume_status": None,
         "level": None, "risk_flags": [],
+        "parent": None, "workflow": None, "recovery_action": None,
     },
     "artifact": {
         "id": None, "type": "plan", "task": None, "version": 1, "supersedes": None,
@@ -93,7 +98,8 @@ FIELDS = {
                  "summary": "", "paths": [], "by": "agent"},
 }
 # Trường thêm sau 0.1.0: mục cũ thiếu trường vẫn hợp lệ (giá trị mặc định ở FIELDS)
-OPTIONAL_FIELDS = {"evidence": {"by"}, "task": {"level", "risk_flags"}}  # level/risk_flags: triage (Phase 5)
+OPTIONAL_FIELDS = {"evidence": {"by"},
+                   "task": {"level", "risk_flags", "parent", "workflow", "recovery_action"}}  # Phase 3–4b  # level/risk_flags: triage (Phase 5)
 LIST_FIELDS = {k: {f for f, d in v.items() if isinstance(d, list)} for k, v in FIELDS.items()}
 SESSION_FIELDS = ("id", "task", "role", "result")
 
@@ -202,6 +208,7 @@ def safe_mode() -> bool:
 # Lệnh đổi workflow/dự án: SAFE_MODE từ chối (cmd, action hoặc None = mọi action)
 SAFE_BLOCKED = {("new", None), ("set", None), ("advance", None), ("apply", None), ("next", None),
                 ("approve", None), ("verify", None), ("init", None), ("approval", "request"),
+                ("resume", None), ("abort", None),
                 ("handoff", "open"), ("ctx", "seal"), ("docs", "index")}
 
 
@@ -242,7 +249,7 @@ def append_journal(root: Path, rows: list) -> None:
     text = read_text(path) if path.exists() else ""
     lines = [l for l in text.splitlines() if l.strip()]
     prev = _line_hash(lines[-1]) if lines else "0" * 64
-    ts = _dt.datetime.now().isoformat(timespec="seconds")
+    ts = _dt.datetime.now().isoformat(timespec="microseconds")
     for r in rows:
         line = json.dumps({"ts": ts, **_JOURNAL["extra"], **r, "actor": _JOURNAL["actor"],
                            "evidence": _JOURNAL["evidence"], "prev": prev},
@@ -265,7 +272,8 @@ def write_active(root: Path) -> None:
                                          for p in as_list(a.get("paths"))]})
     # File .orchestra/ mà agent được ghi (ngoại lệ của deny_always): artifact/context của task chưa done,
     # handoff của phiên đang mở (result pending). Mọi thứ khác trong .orchestra/ chỉ `orc` ghi.
-    open_tasks = {t["id"] for t in tasks if isinstance(t, dict) and t.get("status") != "done"}
+    open_tasks = {t["id"] for t in tasks if isinstance(t, dict) and t.get("status") not in ("done", "DONE",
+                                                                                         "INTEGRATED", "ABORTED")}
     writable = [f"{ORC_DIR}/artifacts/{a['id']}.md" for a in arts
                 if isinstance(a, dict) and a.get("task") in open_tasks]
     writable += [f"{ORC_DIR}/contexts/{c['id']}.md" for c in load_registry(root, "context")
@@ -568,6 +576,10 @@ def tasks_from_plan(root: Path, art_id: str) -> list:
     specs = _yaml().safe_load(m.group(1)) or []
     if not isinstance(specs, list):
         raise OrcError("orc-tasks phải là danh sách")
+    plan_task = find_entry(root, art["task"])[2] if art.get("task") else {}
+    plan_parent = plan_task.get("parent") or (plan_task["id"] if plan_task.get("workflow") == "k" else None)
+    if load_config(root).get("workflow") == "k" and not plan_parent:
+        raise OrcError(f"dự án workflow k: task plan của {art_id} chưa thuộc task gốc nào (`--parent`)")
     local = {}
     created = []
     for spec in specs:
@@ -575,7 +587,7 @@ def tasks_from_plan(root: Path, art_id: str) -> list:
             raise OrcError("Mỗi task trong orc-tasks cần 'key' và 'title'")
         blocked = [local.get(b, b) for b in as_list(spec.get("blocked_by"))]
         acceptance = [a if "#" in str(a) else f"{art_id}#{a}" for a in as_list(spec.get("acceptance"))]
-        entry = new_task(root, title=spec["title"], owner=spec.get("owner", "coder"),
+        entry = new_task(root, title=spec["title"], owner=spec.get("owner", "coder"), parent=plan_parent,
                          summary=spec.get("summary", ""), blocked_by=blocked,
                          acceptance=acceptance, write_scope=spec.get("write_scope"),
                          inputs=[art_id] + as_list(spec.get("inputs")),
@@ -629,6 +641,14 @@ def advance(root: Path, id_: str, to: str) -> dict:
         raise OrcError(f"{id_}: {kind} không có trạng thái để advance")
     _, _, e = find_entry(root, id_)
     frm = e.get("status")
+    if kind == "task" and e.get("workflow") == "k":
+        import orc_k  # noqa: PLC0415
+        entry, note = orc_k.advance_root(root, e, to)
+        entry["_note"] = note
+        return entry
+    if kind == "task" and e.get("parent") and frm in ("blocked", "failed"):
+        raise OrcError(f"{id_}: task con của yêu cầu K — Dung mở chặn bằng `orc:resume {e['parent']}` "
+                       f"rồi `orc resume {e['parent']}`")
     if kind == "artifact" and e.get("type") == "research" and to == "accepted":
         raise OrcError(f"{id_}: ART research ghi nhận câu trả lời của Dung — chỉ accepted qua "
                        f"`orc approval request {id_} ...` + Dung gõ `orc:approve ...` + `orc approve` (H7)")
@@ -650,6 +670,8 @@ def advance(root: Path, id_: str, to: str) -> dict:
                 raise OrcError(f"{id_}: đang chờ blocked_by, không phải chờ Dung; dùng `orc next`")
             changes.update(needs_user=False, resume_status=None)
         if to == "dispatched" and agent_for(e.get("owner")) == "coder":
+            import orc_k  # noqa: PLC0415
+            orc_k.child_dispatch_check(root, e)  # yêu cầu K: gốc IMPLEMENTING + approval còn hiệu lực
             import orc_verify  # noqa: PLC0415 - cùng thư mục cli/
             import orc_approval  # noqa: PLC0415
             ok, why = orc_approval.check(root, id_)
@@ -735,8 +757,19 @@ def entry_errors(root: Path, kind: str, e: dict, extra_ids=frozenset()) -> list:
             errs.append(f"{label}: {field} tham chiếu {value} không tồn tại")
 
     if kind == "task":
-        if e.get("status") not in TASK_STATUS:
+        import orc_k  # noqa: PLC0415
+        allowed = orc_k.K_STATES if e.get("workflow") == "k" else TASK_STATUS
+        if e.get("status") not in allowed:
             errs.append(f"{label}: status '{e.get('status')}' không hợp lệ")
+        if e.get("workflow") not in (None, "k"):
+            errs.append(f"{label}: workflow phải là k hoặc trống")
+        if e.get("recovery_action") not in (None, *orc_k.RECOVERY):
+            errs.append(f"{label}: recovery_action không hợp lệ")
+        if e.get("parent"):
+            ref(e.get("parent"), "parent", "task")
+            if e.get("parent") not in extra_ids and exists(root, e.get("parent")):
+                if find_entry(root, e["parent"])[2].get("workflow") != "k":
+                    errs.append(f"{label}: parent {e['parent']} không phải task gốc K")
         if not OWNER_RE.match(str(e.get("owner"))):
             errs.append(f"{label}: owner '{e.get('owner')}' không hợp lệ")
         if not str(e.get("title") or "").strip():
@@ -745,7 +778,7 @@ def entry_errors(root: Path, kind: str, e: dict, extra_ids=frozenset()) -> list:
             errs.append(f"{label}: failure_class '{e.get('failure_class')}' không hợp lệ")
         if not isinstance(e.get("attempts"), int) or e.get("attempts") < 0:
             errs.append(f"{label}: attempts phải là số nguyên ≥ 0")
-        if e.get("resume_status") not in (None, *TASK_STATUS):
+        if e.get("resume_status") not in (None, *allowed):
             errs.append(f"{label}: resume_status không hợp lệ")
         if e.get("level") not in (None, 0, 1, 2, 3):
             errs.append(f"{label}: level phải là 0..3")
@@ -1012,7 +1045,8 @@ def next_report(root: Path) -> str:
     promoted = promote(root)
     write_active(root)
     tasks = load_registry(root, "task")
-    lines = []
+    import orc_k  # noqa: PLC0415
+    lines = orc_k.next_lines(root, tasks)
     if promoted:
         lines.append("Đã chuyển sang ready/resume: " + ", ".join(promoted))
     ask = [t for t in tasks if t.get("needs_user")]
@@ -1115,6 +1149,18 @@ def apply_envelope(root: Path, env: dict) -> str:
         elif not isinstance(d, str):
             raise OrcError("proposed_decisions phải là chuỗi hoặc mapping")
 
+    # Task coder của yêu cầu K: định tuyến review theo cổng verify + I2 (tính trước khi ghi; thiếu verify ⇒ từ chối)
+    k_route, k_parent = None, None
+    if task.get("parent"):
+        import orc_k  # noqa: PLC0415
+        k_parent = find_entry(root, task["parent"])[2]
+        if not orc_k.is_root(k_parent):
+            k_parent = None
+        elif reviewing and agent_for(task["owner"]) == "coder":
+            k_route = orc_k.review_route(root, task, env)
+            if k_route[0] is None:  # SPEC_GAP ở L0/L1: lập lại plan như 0.1.0
+                k_route = None
+
     # Ghi
     evd_ids = []
     for ev in env["evidence"]:
@@ -1153,6 +1199,9 @@ def apply_envelope(root: Path, env: dict) -> str:
         else:
             task.update(status="failed", needs_user=True)
             route = f"HỎI DUNG: {tid} thất bại"
+    elif k_route:
+        task.update(k_route[0])
+        route = k_route[1]
     elif status == "done" and not fc:
         task.update(status="done", failure_class=None)
         route = "orc next"
@@ -1168,7 +1217,7 @@ def apply_envelope(root: Path, env: dict) -> str:
                 route = f"trả {tid} về coder (attempt {task['attempts']})"
         elif fc == "SPEC_GAP":
             plans = [a.split("#")[0] for a in task["acceptance"]]
-            fix = new_task(root, title=f"Lập lại plan cho {tid}", owner="researcher",
+            fix = new_task(root, title=f"Lập lại plan cho {tid}", owner="researcher", parent=task.get("parent"),
                            inputs=[tid] + sorted(set(plans)),
                            summary=f"SPEC_GAP từ review {tid}; plan mới phải supersedes plan cũ")
             task.update(status="blocked", resume_status="ready",
@@ -1178,15 +1227,20 @@ def apply_envelope(root: Path, env: dict) -> str:
             task.update(status="blocked", needs_user=True)
             route = f"HỎI DUNG: {tid} xung đột quyết định"
         elif fc == "REGRESSION":
-            fix = new_task(root, title=f"Sửa regression của {tid}", owner="coder",
+            fix = new_task(root, title=f"Sửa regression của {tid}", owner="coder", parent=task.get("parent"),
                            write_scope=task["write_scope"], inputs=[tid],
                            acceptance=task["acceptance"],
                            summary=f"REGRESSION phát hiện khi review {tid}; chặn merge")
             task.update(status="blocked", resume_status="in_review",
                         blocked_by=task["blocked_by"] + [fix["id"]])
             route = f"CHẶN MERGE {tid}; {fix['id']} → coder"
-    with journal_context(evidence=evd_ids):
+    with journal_context(evidence=evd_ids, extra={"recovery_action": task.get("recovery_action")}
+                         if task.get("recovery_action") else None):
         _replace_entry(root, "task", task)
+    if k_parent and task["status"] in ("blocked", "failed") and task.get("needs_user"):
+        import orc_k  # noqa: PLC0415
+        orc_k.escalate(root, task, route)  # ESCALATE ở task con ⇒ task gốc BLOCKED
+        route += f"; {k_parent['id']} → BLOCKED"
     extra = []
     if evd_ids:
         extra.append("evidence " + ",".join(evd_ids))
@@ -1256,6 +1310,8 @@ def brief_text(root: Path, key: str | None = None, max_chars: int = BRIEF_MAX_CH
     decisions = load_registry(root, "decision")
     out = [f"# Orchestra brief — {cfg.get('project_id')} (kit {cfg.get('kit_version')})",
            f"Mục tiêu: {_short(cfg.get('goal'), 300)}"]
+    if cfg.get("workflow") == "k":
+        out.append(f"Workflow: K (verify: {'có' if cfg.get('verify') else 'THIẾU — K không DONE được'})")
     if safe_mode():
         out.append("⚠ ORC_SAFE_MODE đang bật: chỉ sửa kit và .orchestra/config.yaml; orc từ chối lệnh đổi "
                    "workflow. Dung tắt biến này khi sửa xong.")
@@ -1271,7 +1327,8 @@ def brief_text(root: Path, key: str | None = None, max_chars: int = BRIEF_MAX_CH
         out.append("\n## Cần Dung quyết")
         out += [f"- {t['id']} [{t['status']}] {t.get('failure_class') or ''} {_short(t['title'], 80)}"
                 for t in ask]
-    open_tasks = [t for t in tasks if t.get("status") != "done"]
+    import orc_k  # noqa: PLC0415
+    open_tasks = [t for t in tasks if not orc_k.is_closed(t.get("status"))]
     out.append(f"\n## Task mở ({len(open_tasks)})")
     out += [f"- {t['id']} [{t['status']}] {t['owner']}: {_short(t['title'], 70)}"
             + (f" — {_short(t.get('summary'), 100)}" if t.get("summary") else "")
@@ -1717,7 +1774,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--key", help="Claude session_id")
 
     s = sub.add_parser("new", help="tạo mục mới, in ra ID")
-    s.add_argument("type", choices=("task", "artifact", "decision", "context", "evidence"))
+    s.add_argument("type", choices=("task", "request", "artifact", "decision", "context", "evidence"))
     s.add_argument("--title")
     s.add_argument("--owner")
     s.add_argument("--summary", default="")
@@ -1736,6 +1793,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--result", default="info")
     s.add_argument("--paths", nargs="*")
     s.add_argument("--from", dest="from_plan", help="tạo task từ plan ART đã accepted")
+    s.add_argument("--parent", help="task gốc K (dự án workflow: k bắt buộc với task không phải gốc)")
 
     s = sub.add_parser("set", help="sửa trường: orc set ID key=value ...")
     s.add_argument("id")
@@ -1744,6 +1802,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("advance", help="chuyển trạng thái theo luật: orc advance ID --to X")
     s.add_argument("id")
     s.add_argument("--to", required=True)
+
+    s = sub.add_parser("resume", help="task gốc K: BLOCKED → trạng thái trước, khi Dung đã gõ `orc:resume ID`")
+    s.add_argument("id")
+
+    s = sub.add_parser("abort", help="task gốc K → ABORTED, khi Dung đã gõ `orc:abort ID`")
+    s.add_argument("id")
 
     s = sub.add_parser("approve", help="ghi phê duyệt khi Dung đã gõ `orc:approve ID,... NONCE` (DEC/ART → accepted)")
     s.add_argument("id", nargs="+")
@@ -1855,7 +1919,7 @@ def record_rejection(root: Path, args, exc: Exception) -> None:
 
 
 # Lệnh ghi state/registry: chạy trong khoá (H5)
-MUTATING = {"new", "set", "advance", "apply", "next", "handoff", "ctx", "approve", "approval"}
+MUTATING = {"new", "set", "advance", "apply", "next", "handoff", "ctx", "approve", "approval", "resume", "abort"}
 # verify tự lấy khoá chỉ lúc ghi EVD: lệnh kiểm chạy lâu không được giữ khoá state
 
 
@@ -1869,6 +1933,12 @@ def _run(root: Path, args) -> int:
         print(f"đã cập nhật {args.id}")
     elif args.cmd == "advance":
         e = advance(root, args.id, args.to)
+        print(f"{args.id} → {e['status']}")
+        if e.get("_note"):
+            print(e["_note"])
+    elif args.cmd in ("resume", "abort"):
+        import orc_k  # noqa: PLC0415
+        e = (orc_k.resume if args.cmd == "resume" else orc_k.abort)(root, args.id)
         print(f"{args.id} → {e['status']}")
     elif args.cmd == "approve":
         import orc_approval  # noqa: PLC0415
@@ -1956,12 +2026,19 @@ def _run(root: Path, args) -> int:
 
 
 def _cmd_new(root: Path, a) -> str:
+    if a.type == "request":
+        if not a.title:
+            raise OrcError("new request cần --title")
+        return new_task(root, title=a.title, owner="orchestrator", summary=a.summary, workflow="k",
+                        status="NEW")["id"]
     if a.type == "task":
         if a.from_plan:
             return "\n".join(t["id"] for t in tasks_from_plan(root, a.from_plan))
         if not a.title:
             raise OrcError("new task cần --title")
-        return new_task(root, title=a.title, owner=a.owner or "coder", summary=a.summary,
+        if load_config(root).get("workflow") == "k" and not a.parent:
+            raise OrcError("dự án workflow k: task mới cần `--parent <task gốc>` (tạo gốc bằng `orc new request`)")
+        return new_task(root, title=a.title, owner=a.owner or "coder", summary=a.summary, parent=a.parent,
                         blocked_by=a.blocked_by, acceptance=a.acceptance,
                         write_scope=a.write_scope, inputs=a.inputs, context=a.context)["id"]
     if a.type == "artifact":

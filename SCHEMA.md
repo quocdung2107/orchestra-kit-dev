@@ -107,6 +107,21 @@ Hai chặng (Dung chốt lại 2026-10-05):
 
 `orc ask ART-x` từ chối nếu ART không phải research hoặc còn mục chưa điền.
 
+## 6c. State machine K (v0.2 phase 4b — opt-in `workflow: k` trong config)
+
+Phương án A (Dung chốt 2026-10-09). **Task gốc** (`orc new request`, owner orchestrator, `workflow: k`):
+`NEW → TRIAGED → RESEARCHING → PLANNED → READY_FOR_IMPLEMENTATION (L0/L1) | APPROVAL_REQUIRED (L2/L3, chưa phân
+mức) → IMPLEMENTING → VERIFYING → DONE → INTEGRATED`; phụ `BLOCKED · FAILED · ABORTED`. Chỉ đổi bằng `orc advance`
+(orc kiểm điều kiện: research đủ 4 mục + plan accepted + có task coder ⇒ PLANNED; approval còn hiệu lực ⇒
+IMPLEMENTING; mọi task coder nộp ⇒ VERIFYING; mọi task coder done ⇒ DONE). Vào APPROVAL_REQUIRED/READY: orc tự xin
+**một** lần duyệt gồm gốc + ART research + DEC proposed. Binding gốc: plan accepted của task con, hợp write_scope,
+danh sách task coder, level, risk_flags.
+**Task con** (`parent` = gốc; dự án K bắt buộc): vòng 0.1.0, nhưng task coder chỉ `dispatched` khi gốc IMPLEMENTING
+và approval còn hiệu lực; khi reviewer đạt, orc đọc lần `orc verify` **sau lần nộp** (journal `event: verify`):
+PASS ⇒ done; FAIL ⇒ REPAIR; scope ⇒ ROLLBACK (in lệnh cho Dung) + ESCALATE; môi trường ⇒ ESCALATE; chưa verify ⇒
+từ chối envelope. Review không đạt: bảng I2 (`orc_k.recovery`). ESCALATE ⇒ gốc BLOCKED.
+`orc resume R` / `orc abort R` chỉ khi Dung đã gõ `orc:resume R` / `orc:abort R`. Task cũ không parent giữ luật 0.1.0.
+
 ## 7. Phiên và handoff (D5)
 
 - Hook **SessionStart** nạp `orc brief` (≤ 6000 ký tự ≈ 1.5k token) kèm khoá phiên Claude (`session_id`).

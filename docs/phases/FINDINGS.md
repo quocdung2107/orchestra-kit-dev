@@ -106,3 +106,5 @@ Mỗi FINDING: vấn đề, bằng chứng, lựa chọn, đề xuất. Không t
   Kit hiện vẫn tách task gốc / plan / coder / review (subagent). Triage (level) là Phase 5, chưa có.
 - **Bằng chứng:** `docs/design/orchestra-redesign-v0.2.md` mục K1–K2, N4, N5; `commands/auto.md`.
 - **Lựa chọn và đề xuất:** `docs/phases/PHASE-4b-K-design.md` (khuyên phương án A + Q2–Q5). Chờ Dung chốt.
+
+| 7 K giả định gộp agent | **đã xử lý** theo phương án A (Dung chốt 2026-10-09), PHASE-4b |

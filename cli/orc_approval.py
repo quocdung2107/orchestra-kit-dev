@@ -70,6 +70,17 @@ def _body(root: Path, id_: str) -> str:
 def binding(root: Path, id_: str) -> dict:
     kind = oc.kind_of(id_)
     _, _, e = oc.find_entry(root, id_)
+    if kind == "task" and e.get("workflow") == "k":
+        # Task gốc K (Phase 4b): plan accepted của task con + hợp write_scope + danh sách task coder
+        import orc_k  # noqa: PLC0415
+        plans = sorted(a["id"] for a in orc_k.child_arts(root, id_, "plan") if a.get("status") == "accepted")
+        kids = orc_k.coders(root, id_)
+        scope = sorted({str(s) for t in kids for s in oc.as_list(t.get("write_scope"))})
+        return {"task": id_, "plans": plans,
+                "plan_hash": _sha("\n\0".join(f"{i}\n{_body(root, i)}" for i in plans)),
+                "write_scope_hash": _sha(json.dumps(scope)),
+                "tasks": sorted(t["id"] for t in kids),
+                "level": e.get("level"), "risk_flags": sorted(oc.as_list(e.get("risk_flags")))}
     if kind == "task":
         parts = [f"{i}\n{_body(root, i)}" for i in plan_ids(root, e)]
         return {"task": id_, "plans": plan_ids(root, e), "plan_hash": _sha("\n\0".join(parts)),

@@ -25,6 +25,11 @@ import tempfile
 from pathlib import Path
 
 V02_ONLY = ["journal.jsonl", "approvals.yaml", "checkpoints"]
+# Trạng thái task gốc K (Phase 4b) → trạng thái gần nhất của 0.1.0
+K_TO_V01 = {"NEW": "pending", "TRIAGED": "pending", "PLANNED": "pending", "READY_FOR_IMPLEMENTATION": "pending",
+            "APPROVAL_REQUIRED": "pending", "RESEARCHING": "dispatched", "IMPLEMENTING": "dispatched",
+            "VERIFYING": "in_review", "DONE": "done", "INTEGRATED": "done", "BLOCKED": "blocked",
+            "FAILED": "failed", "ABORTED": "failed"}
 
 
 def load_v01(kit: Path):
@@ -60,8 +65,16 @@ def transform(v01, root: Path) -> list:
                 e["kind"] = "other"
                 e["summary"] = (f"[v0.2 {old}] " + str(e.get("summary") or ""))[: v01.SUMMARY_MAX]
                 notes.append(f"{e['id']}: kind {old} → other")
-            if kind == "task" and e.get("status") not in v01.TASK_STATUS:
-                raise SystemExit(f"{e.get('id')}: trạng thái '{e.get('status')}' 0.1.0 không có — dừng, không đoán")
+            if kind == "task":
+                for f in ("status", "resume_status"):
+                    if e.get(f) in K_TO_V01:
+                        notes.append(f"{e.get('id')}: {f} {e[f]} → {K_TO_V01[e[f]]}")
+                        e[f] = K_TO_V01[e[f]]
+                if e.get("failure_class") not in (None, *v01.FAILURE_CLASSES):
+                    notes.append(f"{e.get('id')}: bỏ failure_class {e['failure_class']}")
+                    e["failure_class"] = None
+                if e.get("status") not in v01.TASK_STATUS:
+                    raise SystemExit(f"{e.get('id')}: trạng thái '{e.get('status')}' 0.1.0 không có — dừng, không đoán")
         v01.save_registry(root, kind, items)
     return notes
 
