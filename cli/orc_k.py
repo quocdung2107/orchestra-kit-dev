@@ -134,6 +134,13 @@ def advance_root(root: Path, e: dict, to: str) -> tuple:
     elif frm == "VERIFYING" and to == "IMPLEMENTING":
         _need([t for t in kids if t.get("status") != "done"], f"{rid}: mọi task coder đã done — advance DONE")
     entry = oc.set_fields(root, rid, {"status": to})
+    stage = {"TRIAGED": 1, "PLANNED": 2, "VERIFYING": 3}.get(to)
+    if stage:  # Phase 5: triage shadow — chỉ ghi nhận, lỗi không chặn K
+        import orc_triage  # noqa: PLC0415
+        try:
+            note = orc_triage.render(orc_triage.run(root, rid, stage))
+        except Exception as exc:  # noqa: BLE001
+            note = f"TRIAGE (shadow) lỗi, bỏ qua: {exc}"
     if to in ("APPROVAL_REQUIRED", "READY_FOR_IMPLEMENTATION"):
         import orc_approval  # noqa: PLC0415
         ids = [rid] + [a["id"] for a in child_arts(root, rid, "research") if a.get("status") == "draft"]

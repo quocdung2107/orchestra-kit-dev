@@ -122,6 +122,11 @@ PASS ⇒ done; FAIL ⇒ REPAIR; scope ⇒ ROLLBACK (in lệnh cho Dung) + ESCALA
 từ chối envelope. Review không đạt: bảng I2 (`orc_k.recovery`). ESCALATE ⇒ gốc BLOCKED.
 `orc resume R` / `orc abort R` chỉ khi Dung đã gõ `orc:resume R` / `orc:abort R`. Task cũ không parent giữ luật 0.1.0.
 
+Triage (v0.2 phase 5 — **shadow**): `orc triage run R --stage 1|2|3 [--form F]` / `show` / `downgrade --to N`
+(cần Dung gõ `orc:downgrade R L<n> <lý do>`). Tự chạy khi gốc K vào TRIAGED (form), PLANNED (write_scope), VERIFYING
+(diff). Mức = max luật H2 (risk_paths L3, form, file/dòng/module; ngưỡng ở `config.triage`); chỉ tăng; thiếu dữ kiện ⇒
+tối thiểu L1. Shadow ghi journal `event: triage`, không ghi `task.level`.
+
 ## 7. Phiên và handoff (D5)
 
 - Hook **SessionStart** nạp `orc brief` (≤ 6000 ký tự ≈ 1.5k token) kèm khoá phiên Claude (`session_id`).

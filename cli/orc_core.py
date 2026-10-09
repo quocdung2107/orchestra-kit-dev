@@ -208,7 +208,7 @@ def safe_mode() -> bool:
 # Lệnh đổi workflow/dự án: SAFE_MODE từ chối (cmd, action hoặc None = mọi action)
 SAFE_BLOCKED = {("new", None), ("set", None), ("advance", None), ("apply", None), ("next", None),
                 ("approve", None), ("verify", None), ("init", None), ("approval", "request"),
-                ("resume", None), ("abort", None),
+                ("resume", None), ("abort", None), ("triage", "run"), ("triage", "downgrade"),
                 ("handoff", "open"), ("ctx", "seal"), ("docs", "index")}
 
 
@@ -1803,6 +1803,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     s.add_argument("--to", required=True)
 
+    s = sub.add_parser("triage", help="level tất định (shadow): run ID --stage 1|2|3 [--form F] | show ID | "
+                                      "downgrade ID --to N --reason R")
+    s.add_argument("action", choices=("run", "show", "downgrade"))
+    s.add_argument("id")
+    s.add_argument("--stage", type=int, default=2)
+    s.add_argument("--form", help="YAML có/không: schema_change, data_migration, security, irreversible, "
+                                  "public_api, new_dependency, external_service, user_visible, uncertain")
+    s.add_argument("--paths", nargs="*", help="đường dẫn dự kiến (lần 1)")
+    s.add_argument("--to", type=int)
+    s.add_argument("--reason", default="")
+
     s = sub.add_parser("resume", help="task gốc K: BLOCKED → trạng thái trước, khi Dung đã gõ `orc:resume ID`")
     s.add_argument("id")
 
@@ -1919,7 +1930,8 @@ def record_rejection(root: Path, args, exc: Exception) -> None:
 
 
 # Lệnh ghi state/registry: chạy trong khoá (H5)
-MUTATING = {"new", "set", "advance", "apply", "next", "handoff", "ctx", "approve", "approval", "resume", "abort"}
+MUTATING = {"new", "set", "advance", "apply", "next", "handoff", "ctx", "approve", "approval", "resume", "abort",
+            "triage"}
 # verify tự lấy khoá chỉ lúc ghi EVD: lệnh kiểm chạy lâu không được giữ khoá state
 
 
@@ -1936,6 +1948,19 @@ def _run(root: Path, args) -> int:
         print(f"{args.id} → {e['status']}")
         if e.get("_note"):
             print(e["_note"])
+    elif args.cmd == "triage":
+        import orc_triage  # noqa: PLC0415
+        if args.action == "show":
+            sys.stdout.write(orc_triage.show(root, args.id))
+        elif args.action == "downgrade":
+            if args.to not in (0, 1, 2, 3):
+                raise OrcError("downgrade cần --to 0..3")
+            rec = orc_triage.downgrade(root, args.id, args.to, args.reason)
+            print(f"{args.id}: hạ L{rec['previous']} → L{rec['level']} (shadow)")
+        else:
+            rec = orc_triage.run(root, args.id, args.stage, form=orc_triage.load_form(args.form),
+                                 paths=args.paths)
+            print(orc_triage.render(rec))
     elif args.cmd in ("resume", "abort"):
         import orc_k  # noqa: PLC0415
         e = (orc_k.resume if args.cmd == "resume" else orc_k.abort)(root, args.id)
