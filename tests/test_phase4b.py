@@ -251,6 +251,43 @@ class TestKRecovery(Base):
         self.assertEqual(self.status(self.R), "ABORTED")
 
 
+class TestAbortAnyTask(unittest.TestCase):
+    """Sau release (2026-10-11): TASK-0051 cũ không huỷ được vì `orc abort` chỉ nhận task gốc K."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        oc.cmd_init(self.root, "p", "g")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_legacy_task_abort_needs_dung_and_leaves_brief(self):
+        t = oc.new_task(self.root, title="Build, test, lint (trùng)", owner="coder")["id"]
+        oc.next_report(self.root)  # pending → ready, như TASK-0051
+        code, _, err = cli(self.root, "abort", t)
+        self.assertEqual(code, 1)
+        self.assertIn(f"orc:abort {t}", err)
+        og.log_prompt({"cwd": str(self.root), "session_id": "dung", "prompt": f"bỏ task trùng\norc:abort {t}"})
+        code, out, err = cli(self.root, "abort", t)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(oc.find_entry(self.root, t)[2]["status"], "aborted")
+        self.assertIn("Task mở (0)", oc.brief_text(self.root))
+        self.assertNotIn(f"READY: {t}", oc.next_report(self.root))
+        self.assertEqual(cli(self.root, "abort", t)[0], 1)  # đã đóng
+        self.assertEqual(oc.validate(self.root), [])
+
+    def test_approve_ignores_copied_nonce(self):
+        import orc_approval as oa  # noqa: PLC0415
+        d = oc.new_decision(self.root, "Q1")["id"]
+        line = next(l.strip() for l in oa.request(self.root, [d]).splitlines() if "orc:approve" in l)
+        og.log_prompt({"cwd": str(self.root), "session_id": "dung", "prompt": line})
+        nonce = line.split()[-1]
+        code, _, err = cli(self.root, "approve", f"{d},{nonce}")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(oc.find_entry(self.root, d)[2]["status"], "accepted")
+
+
 class TestRecoveryTable(unittest.TestCase):
     def test_i2(self):
         import orc_k  # noqa: PLC0415

@@ -29,7 +29,7 @@ V02_ONLY = ["journal.jsonl", "approvals.yaml", "checkpoints"]
 K_TO_V01 = {"NEW": "pending", "TRIAGED": "pending", "PLANNED": "pending", "READY_FOR_IMPLEMENTATION": "pending",
             "APPROVAL_REQUIRED": "pending", "RESEARCHING": "dispatched", "IMPLEMENTING": "dispatched",
             "VERIFYING": "in_review", "DONE": "done", "INTEGRATED": "done", "BLOCKED": "blocked",
-            "FAILED": "failed", "ABORTED": "failed"}
+            "FAILED": "failed", "ABORTED": "failed", "aborted": "failed"}
 
 
 def load_v01(kit: Path):

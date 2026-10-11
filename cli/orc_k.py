@@ -20,7 +20,7 @@ import orc_core as oc
 
 K_STATES = ("NEW", "TRIAGED", "RESEARCHING", "PLANNED", "READY_FOR_IMPLEMENTATION", "APPROVAL_REQUIRED",
             "IMPLEMENTING", "VERIFYING", "DONE", "INTEGRATED", "BLOCKED", "FAILED", "ABORTED")
-CLOSED = ("done", "DONE", "INTEGRATED", "ABORTED")
+CLOSED = ("done", "aborted", "DONE", "INTEGRATED", "ABORTED")
 K_MOVES = {
     ("NEW", "TRIAGED"), ("TRIAGED", "RESEARCHING"), ("RESEARCHING", "PLANNED"),
     ("PLANNED", "READY_FOR_IMPLEMENTATION"), ("PLANNED", "APPROVAL_REQUIRED"),
@@ -54,7 +54,9 @@ def children(root: Path, rid: str, tasks=None) -> list:
 
 
 def coders(root: Path, rid: str, tasks=None) -> list:
-    return [t for t in children(root, rid, tasks) if oc.agent_for(t.get("owner")) == "coder"]
+    """Task coder còn hiệu lực của yêu cầu (task đã huỷ không tính; huỷ ⇒ binding đổi ⇒ phải duyệt lại)."""
+    return [t for t in children(root, rid, tasks)
+            if oc.agent_for(t.get("owner")) == "coder" and t.get("status") != "aborted"]
 
 
 def child_arts(root: Path, rid: str, type_: str) -> list:
@@ -263,11 +265,13 @@ def resume(root: Path, rid: str) -> dict:
 
 
 def abort(root: Path, rid: str) -> dict:
+    """Dung huỷ một task chưa đóng: task gốc K ⇒ ABORTED; task thường/task con ⇒ aborted (không chạy, không hiện
+    trong brief). Chỉ khi Dung đã gõ `orc:abort ID` sau lần đổi trạng thái gần nhất của task đó."""
     _, _, e = oc.find_entry(root, rid)
-    _need(is_root(e) and not is_closed(e.get("status")), f"{rid}: chỉ huỷ task gốc K chưa đóng")
+    _need(not is_closed(e.get("status")), f"{rid}: đã đóng ({e.get('status')}), không huỷ được")
     _need(_dung_said(root, f"orc:abort {rid}", _last_row_ts(root, rid)),
           f"{rid}: chưa thấy Dung gõ `orc:abort {rid}` sau lần đổi trạng thái gần nhất")
-    return oc.set_fields(root, rid, {"status": "ABORTED", "needs_user": False})
+    return oc.set_fields(root, rid, {"status": "ABORTED" if is_root(e) else "aborted", "needs_user": False})
 
 
 def next_lines(root: Path, tasks: list) -> list:

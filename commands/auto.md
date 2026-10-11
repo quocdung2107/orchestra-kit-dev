@@ -78,4 +78,4 @@ Không báo tiến độ từng bước; chỉ nói với Dung ở điểm dừn
 ## Điểm dừng (chỉ những trường hợp này)
 Chặng 1 bước 4 · duyệt plan (chặng 2 bước 3) · `orc gate` = ASK · `HỎI DUNG` / R BLOCKED · dispatch bị từ chối vì
 approval · envelope bị từ chối 2 lần · lỗi môi trường không tự khắc phục. Khi dừng: handoff `result: blocked`, hỏi một
-câu trả lời được bằng một từ, kèm phương án khuyên dùng. Dung muốn huỷ yêu cầu: Dung gõ `orc:abort <R>` → `orc abort <R>`.
+câu trả lời được bằng một từ, kèm phương án khuyên dùng. Dung muốn huỷ yêu cầu: Dung gõ `orc:abort <R>` → `orc abort <R>`; huỷ một task con (trùng/bỏ qua): `orc:abort <T>` → `orc abort <T>`.

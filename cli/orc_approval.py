@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import re
 import secrets
 from pathlib import Path
 
@@ -104,6 +105,8 @@ def _ids(ids) -> list:
     out = []
     for i in ids:
         out += [x for x in str(i).split(",") if x]
+    # Agent hay chép cả nonce vào lệnh (`orc approve ART-1,DEC-2 5DA20D`): nonce không phải ID ⇒ bỏ qua.
+    out = [x for x in out if oc.is_id(x) or not re.fullmatch(r"[0-9A-Fa-f]{6}", x)]
     if not out or len(set(out)) != len(out):
         raise oc.OrcError("cần danh sách ID không trùng")
     return out

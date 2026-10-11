@@ -38,7 +38,8 @@ CONTENT_DIR = {"artifact": "artifacts", "decision": "decisions",
 ID_RE = re.compile(r"^(TASK|ART|DEC|CTX|EVD|S)-(\d{4,})$")
 ACC_RE = re.compile(r"^(ART-\d{4,})#(AC-\d+)$")
 
-TASK_STATUS = ("pending", "ready", "dispatched", "in_review", "done", "failed", "blocked")
+TASK_STATUS = ("pending", "ready", "dispatched", "in_review", "done", "failed", "blocked",
+               "aborted")  # aborted: Dung huỷ bằng `orc:abort` (v0.2 sau release)
 OWNER_RE = re.compile(r"^(orchestrator|researcher|reviewer|coder(-\d+)?)$")
 ART_TYPES = ("plan", "research", "code_patch", "review_report")
 ART_STATUS = ("draft", "accepted", "rejected")
@@ -273,7 +274,7 @@ def write_active(root: Path) -> None:
     # File .orchestra/ mà agent được ghi (ngoại lệ của deny_always): artifact/context của task chưa done,
     # handoff của phiên đang mở (result pending). Mọi thứ khác trong .orchestra/ chỉ `orc` ghi.
     open_tasks = {t["id"] for t in tasks if isinstance(t, dict) and t.get("status") not in ("done", "DONE",
-                                                                                         "INTEGRATED", "ABORTED")}
+                                                                                         "INTEGRATED", "ABORTED", "aborted")}
     writable = [f"{ORC_DIR}/artifacts/{a['id']}.md" for a in arts
                 if isinstance(a, dict) and a.get("task") in open_tasks]
     writable += [f"{ORC_DIR}/contexts/{c['id']}.md" for c in load_registry(root, "context")
@@ -1474,7 +1475,7 @@ def report(root: Path, task_id: str) -> str:
         out += ["", "## Quyết định"]
         out += [f"- {d['id']} [{d['status']}]: {d['summary']}" for d in decs]
     ask = [t for t in kids if t.get("needs_user")]
-    open_ = [t for t in kids if t["status"] != "done"]
+    open_ = [t for t in kids if t["status"] not in ("done", "aborted")]
     out += ["", "## Kết luận",
             ("Xong toàn bộ task." if not open_ else
              f"Còn {len(open_)} task chưa xong: " + ", ".join(f"{t['id']}[{t['status']}]" for t in open_))]

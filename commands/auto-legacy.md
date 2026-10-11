@@ -60,3 +60,6 @@ Không báo tiến độ từng bước; chỉ nói với Dung ở điểm dừn
 `orc gate` = ASK · `HỎI DUNG` (DECISION_CONFLICT, attempts > 2, blocked, failed) · REGRESSION không tự sửa được
 sau 1 vòng · lỗi môi trường không tự khắc phục. Khi dừng: handoff `result: blocked`, hỏi một câu trả lời được bằng
 một từ, kèm phương án khuyên dùng.
+
+Huỷ một task chưa xong (trùng, bỏ qua): Dung gõ dòng riêng `orc:abort <TASK>` → `orc abort <TASK>` (task thành
+`aborted`, không còn trong brief). Không tự gõ dòng `orc:` thay Dung.
