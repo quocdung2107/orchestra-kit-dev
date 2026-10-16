@@ -18,6 +18,8 @@ def main() -> int:
         return 0
     try:
         import orc_core
+        if orc_core.legacy_hook_shadowed(data.get("cwd") or "."):
+            return 0  # cầu nối rc-k-3: dự án đã bật plugin orchestra, plugin tự chạy hook
         root = orc_core.find_root(data.get("cwd") or ".")
         if root is None:
             return 0

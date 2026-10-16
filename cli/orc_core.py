@@ -132,6 +132,41 @@ def find_root(start) -> Path | None:
     return None
 
 
+PLUGIN_PREFIX = "orchestra@"
+
+
+def plugin_enabled(start) -> bool:
+    """Dự án (thư mục `.claude/` gần nhất đi ngược lên từ start) đã bật plugin orchestra chưa.
+
+    Bật = settings.json hoặc settings.local.json có enabledPlugins["orchestra@…"] == true.
+    JSON lỗi hay thiếu file ⇒ coi như chưa bật.
+    """
+    try:
+        p = Path(start).resolve()
+    except Exception:
+        return False
+    for d in (p, *p.parents):
+        cdir = d / ".claude"
+        if not cdir.is_dir():
+            continue
+        for name in ("settings.json", "settings.local.json"):
+            try:
+                data = json.loads((cdir / name).read_text(encoding="utf-8"))
+                plugins = data.get("enabledPlugins") or {}
+                if any(str(k).startswith(PLUGIN_PREFIX) and v is True for k, v in plugins.items()):
+                    return True
+            except Exception:
+                continue
+        return False
+    return False
+
+
+def legacy_hook_shadowed(cwd) -> bool:
+    """Cầu nối (rc-k-3): hook toàn cục cũ (không có CLAUDE_PLUGIN_ROOT) nhường cho plugin
+    ở dự án đã bật plugin orchestra, để hook không chạy hai lần."""
+    return not os.environ.get("CLAUDE_PLUGIN_ROOT") and plugin_enabled(cwd)
+
+
 def require_root(start=".") -> Path:
     root = find_root(start)
     if root is None:
