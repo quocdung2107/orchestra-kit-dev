@@ -1,5 +1,5 @@
 ---
-description: Orchestra — lập plan cho một yêu cầu bằng subagent researcher
+description: Orchestra — lập plan cho một yêu cầu bằng subagent orchestra:researcher
 argument-hint: <mô tả yêu cầu>
 allowed-tools: Bash(orc *)
 disable-model-invocation: true
@@ -15,7 +15,7 @@ nội dung plan/code; mọi ghi trạng thái đi qua `orc`. Truyền ID cho sub
 2. `orc new task --title "<tóm tắt yêu cầu ≤80 ký tự>" --owner researcher --summary "<≤200 ký tự>"` → TASK-ID.
    Rồi `orc set <S-ID> task=<TASK-ID>`.
 3. `orc new artifact --type plan --task <TASK-ID> --summary "<≤200 ký tự>"` → ART-ID.
-4. `orc advance <TASK-ID> --to dispatched`, rồi gọi subagent **researcher** với prompt chỉ gồm:
+4. `orc advance <TASK-ID> --to dispatched`, rồi gọi subagent **orchestra:researcher** với prompt chỉ gồm:
    `TASK: <TASK-ID>. Viết plan vào <ART-ID>. Trả envelope YAML.`
 5. Lưu nguyên envelope YAML subagent trả về vào state:
    `orc apply - <<'YAML'` … `YAML`. Đọc dòng `ROUTE:`.
@@ -24,4 +24,4 @@ nội dung plan/code; mọi ghi trạng thái đi qua `orc`. Truyền ID cho sub
    dòng `orc:approve ...` nó in ra. **Dừng chờ.**
 7. Khi Dung gõ đúng dòng đó: `orc approve <ART-ID> <các DEC>` (plan + DEC thành accepted — H7),
    `orc new task --from <ART-ID>`, `orc next`.
-   Dung yêu cầu sửa → gọi lại researcher với cùng TASK/ART kèm ý của Dung (1–2 câu).
+   Dung yêu cầu sửa → gọi lại orchestra:researcher với cùng TASK/ART kèm ý của Dung (1–2 câu).

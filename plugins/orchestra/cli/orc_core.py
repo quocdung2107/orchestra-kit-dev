@@ -1090,10 +1090,10 @@ def next_report(root: Path) -> str:
         lines.append(f"HỎI DUNG: {t['id']} [{t['status']}] {t.get('failure_class') or ''} — {t['title']}")
     review = [t for t in tasks if t["status"] == "in_review"]
     for t in review:
-        lines.append(f"REVIEW: {t['id']} → /review {t['id']} (agent reviewer)")
+        lines.append(f"REVIEW: {t['id']} → /orchestra:review {t['id']} (agent orchestra:reviewer)")
     ready = [t for t in tasks if t["status"] == "ready"]
     for t in ready:
-        lines.append(f"READY: {t['id']} owner={t['owner']} → agent {agent_for(t['owner'])} — {t['title']}")
+        lines.append(f"READY: {t['id']} owner={t['owner']} → agent orchestra:{agent_for(t['owner'])} — {t['title']}")
     if ready:
         lines.append(f"NEXT: {ready[0]['id']}")
     elif not review and not ask:
@@ -1224,7 +1224,7 @@ def apply_envelope(root: Path, env: dict) -> str:
     if not reviewing:
         if status == "done":
             if agent_for(task["owner"]) == "coder":
-                task["status"], route = "in_review", f"/review {tid}"
+                task["status"], route = "in_review", f"/orchestra:review {tid}"
             else:
                 task["status"], route = "done", "orc next"
         elif status == "partial":
@@ -1391,7 +1391,7 @@ def brief_text(root: Path, key: str | None = None, max_chars: int = BRIEF_MAX_CH
     graph_line = graph_brief_line(root)
     if graph_line:
         out.append(graph_line)
-    out.append("\nLệnh: `orc next`, `orc show <ID> --meta`, /plan /run /review /next /handoff")
+    out.append("\nLệnh: `orc next`, `orc show <ID> --meta`, /orchestra:plan /orchestra:run /orchestra:review /orchestra:next /orchestra:handoff")
     text = "\n".join(out)
     if len(text) > max_chars:
         text = text[: max_chars - 40].rstrip() + "\n… (brief bị cắt)"

@@ -17,7 +17,8 @@ import re
 import sys
 from pathlib import Path
 
-KIT = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent
+KIT = REPO / "plugins" / "orchestra"  # gốc plugin (cli/, hooks/, templates/…)
 sys.path.insert(0, str(KIT / "cli"))
 import orc_guard as og  # noqa: E402
 
@@ -65,7 +66,7 @@ def main(argv=None) -> int:
     for s in (sys.stdout, sys.stderr):
         s.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
-    ap.add_argument("--log", default=str(KIT / "docs/phases/shadow-raw/guard-shadow.jsonl"))
+    ap.add_argument("--log", default=str(REPO / "docs/phases/shadow-raw/guard-shadow.jsonl"))
     ap.add_argument("--root", default="D:/WMS")
     ap.add_argument("--exclude-session", nargs="*", default=["883fcd3d-e75a-4804-8432-b3215e4b5a8c", "smoke-test"])
     a = ap.parse_args(argv)

@@ -3,6 +3,18 @@
 Bộ công cụ đa-agent dùng chung nhiều dự án cho Claude Code: CLI `orc`, 2 hook,
 4 subagent, 5 lệnh. Thiết kế: [SCHEMA.md](SCHEMA.md).
 
+## Cài dạng plugin (nhánh packaging, đang thử)
+
+Repo này là marketplace `dung-kit`; plugin nằm ở `plugins/orchestra/`. Trong Claude Code:
+
+```
+/plugin install orchestra --marketplace quocdung2107/orchestra-kit
+```
+
+Repo private: máy cần đăng nhập git tới GitHub (vd `gh auth setup-git`). Lệnh của plugin có tiền tố
+`/orchestra:` (vd `/orchestra:auto`), subagent là `orchestra:researcher`, `orchestra:coder`… Dự án đã bật
+plugin thì hook toàn cục của kit cũ (từ rc-k-3) tự nhường, không chạy hai lần.
+
 ## Yêu cầu
 
 - Python 3.10+ và PyYAML (`python -m pip install --user pyyaml`)

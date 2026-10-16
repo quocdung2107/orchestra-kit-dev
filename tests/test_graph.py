@@ -10,7 +10,8 @@ import time
 import unittest
 from pathlib import Path
 
-KIT = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent
+KIT = REPO / "plugins" / "orchestra"  # gốc plugin (cli/, hooks/, templates/…)
 sys.path.insert(0, str(KIT / "cli"))
 
 import graph_adapter as ga  # noqa: E402

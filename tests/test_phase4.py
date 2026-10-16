@@ -10,9 +10,10 @@ import unittest
 import zipfile
 from pathlib import Path
 
-KIT = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent
+KIT = REPO / "plugins" / "orchestra"  # gốc plugin (cli/, hooks/, templates/…)
 sys.path.insert(0, str(KIT / "cli"))
-sys.path.insert(0, str(KIT / "tools"))
+sys.path.insert(0, str(REPO / "tools"))
 import orc_approval as oa  # noqa: E402
 import orc_core as oc  # noqa: E402
 import orc_guard as og  # noqa: E402
@@ -179,7 +180,7 @@ class TestGuardFinding6(Base):
 
     def test_replay_real_shadow_log(self):
         import phase4_guard_replay as rp  # noqa: PLC0415
-        log = KIT / "docs/phases/shadow-raw/guard-shadow.jsonl"
+        log = REPO / "docs/phases/shadow-raw/guard-shadow.jsonl"
         res = rp.replay(log, self.root, {"883fcd3d-e75a-4804-8432-b3215e4b5a8c", "smoke-test"})
         self.assertEqual((res["total"], res["replayed"], res["old_deny"]), (511, 383, 109))
         # Còn đúng 1: lệnh trong log bị cắt ở 200 ký tự giữa đường dẫn `.orchestra/cont…` (file CTX được phép)
@@ -343,7 +344,7 @@ class TestRollback(Base):
         super().setUp()
         self.v01 = Path(self.tmp.name + "-v01")
         zp = Path(self.tmp.name + "-v01.zip")
-        subprocess.run(["git", "-C", str(KIT), "archive", "--format=zip", "-o", str(zp), "main",
+        subprocess.run(["git", "-C", str(REPO), "archive", "--format=zip", "-o", str(zp), "main",
                         "cli", "templates", "VERSION"], check=True, capture_output=True)
         with zipfile.ZipFile(zp) as z:
             z.extractall(self.v01)
@@ -367,7 +368,7 @@ class TestRollback(Base):
         super().tearDown()
 
     def rb(self, *extra):
-        r = subprocess.run([PY, str(KIT / "tools/rollback_v02_to_v01.py"), "--project", str(self.root),
+        r = subprocess.run([PY, str(REPO / "tools/rollback_v02_to_v01.py"), "--project", str(self.root),
                             "--v01-kit", str(self.v01), *extra], capture_output=True)
         return r.returncode, r.stdout.decode("utf-8") + r.stderr.decode("utf-8")
 
@@ -404,7 +405,7 @@ class TestRollback(Base):
         self.assertEqual(self.v01_validate()[0], 1)  # không ghi gì
 
     def test_refuses_v02_kit_as_v01(self):
-        r = subprocess.run([PY, str(KIT / "tools/rollback_v02_to_v01.py"), "--project", str(self.root),
+        r = subprocess.run([PY, str(REPO / "tools/rollback_v02_to_v01.py"), "--project", str(self.root),
                             "--v01-kit", str(KIT)], capture_output=True)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("không phải kit 0.1.0", r.stdout.decode("utf-8") + r.stderr.decode("utf-8"))

@@ -6,9 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-KIT = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent
+KIT = REPO / "plugins" / "orchestra"  # gốc plugin (cli/, hooks/, templates/…)
 sys.path.insert(0, str(KIT / "cli"))
-sys.path.insert(0, str(KIT / "tests"))
+sys.path.insert(0, str(REPO / "tests"))
 import orc_core as oc  # noqa: E402
 import orc_guard as og  # noqa: E402
 import orc_triage as ot  # noqa: E402
@@ -111,7 +112,7 @@ class TestTriageCli(KBase):
 
 class TestReplayTool(unittest.TestCase):
     def test_replay_on_tiny_project_is_read_only(self):
-        sys.path.insert(0, str(KIT / "tools"))
+        sys.path.insert(0, str(REPO / "tools"))
         import phase5_triage_replay as rp  # noqa: PLC0415
         import subprocess  # noqa: PLC0415
         with tempfile.TemporaryDirectory() as d:

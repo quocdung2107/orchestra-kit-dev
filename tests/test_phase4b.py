@@ -9,7 +9,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
-KIT = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent
+KIT = REPO / "plugins" / "orchestra"  # gốc plugin (cli/, hooks/, templates/…)
 sys.path.insert(0, str(KIT / "cli"))
 import orc_core as oc  # noqa: E402
 import orc_guard as og  # noqa: E402
@@ -309,13 +310,13 @@ class TestRollbackK(Base):
         git(self.root, "commit", "-q", "-m", "k")
         v01 = Path(self.tmp.name + "-v01")
         zp = Path(self.tmp.name + "-v01.zip")
-        subprocess.run(["git", "-C", str(KIT), "archive", "--format=zip", "-o", str(zp), "main", "cli", "templates",
+        subprocess.run(["git", "-C", str(REPO), "archive", "--format=zip", "-o", str(zp), "main", "cli", "templates",
                         "VERSION"], check=True, capture_output=True)
         with zipfile.ZipFile(zp) as z:
             z.extractall(v01)
         zp.unlink()
         try:
-            r = subprocess.run([sys.executable, str(KIT / "tools/rollback_v02_to_v01.py"), "--project", str(self.root),
+            r = subprocess.run([sys.executable, str(REPO / "tools/rollback_v02_to_v01.py"), "--project", str(self.root),
                                 "--v01-kit", str(v01), "--apply"], capture_output=True)
             out = r.stdout.decode("utf-8") + r.stderr.decode("utf-8")
             self.assertEqual(r.returncode, 0, out)

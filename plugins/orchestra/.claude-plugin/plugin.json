@@ -1,0 +1,8 @@
+{
+  "name": "orchestra",
+  "version": "0.2.0-rc3",
+  "description": "Orchestra: điều phối đa-agent (researcher, coder, reviewer, context-builder) với state tất định qua CLI orc.",
+  "author": {
+    "name": "Dung"
+  }
+}

@@ -23,8 +23,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-KIT = Path(__file__).resolve().parent
-MARK = "orchestra-kit/hooks/"
+KIT = Path(__file__).resolve().parent / "plugins" / "orchestra"  # gốc plugin
+# Nhận hook kit đã cài: bố cục cũ (<kit>/hooks/) và bố cục plugin (<kit>/plugins/orchestra/hooks/)
+MARKS = ("orchestra-kit/hooks/", "plugins/orchestra/hooks/")
 ORC_PERMISSION = "Bash(orc *)"
 
 
@@ -75,7 +76,7 @@ def merge_hooks(settings: dict, python: str) -> dict:
     hooks = settings.setdefault("hooks", {})
     for event, name in (("SessionStart", "session_start"), ("Stop", "stop_check")):
         groups = [g for g in hooks.get(event, [])
-                  if not any(MARK in str(h.get("command", "")) for h in g.get("hooks", []))]
+                  if not any(m in str(h.get("command", "")) for m in MARKS for h in g.get("hooks", []))]
         groups.append(hook_entry(python, name))
         hooks[event] = groups
     # Cho phép chạy `orc` không cần xác nhận mỗi lần (Dung đồng ý 2026-10-05)

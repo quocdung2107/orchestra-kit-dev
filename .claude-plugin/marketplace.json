@@ -1,0 +1,14 @@
+{
+  "name": "dung-kit",
+  "description": "Bộ plugin Claude Code của Dung: orchestra (điều phối đa-agent).",
+  "owner": {
+    "name": "Dung"
+  },
+  "plugins": [
+    {
+      "name": "orchestra",
+      "source": "./plugins/orchestra",
+      "description": "Orchestra: điều phối đa-agent (researcher, coder, reviewer, context-builder) với state tất định qua CLI orc."
+    }
+  ]
+}

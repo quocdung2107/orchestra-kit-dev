@@ -7,11 +7,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-KIT = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent
+KIT = REPO / "plugins" / "orchestra"  # gốc plugin (cli/, hooks/, templates/…)
 
 
 def install(claude_dir):
-    return subprocess.run([sys.executable, str(KIT / "install.py"), "--claude-dir",
+    return subprocess.run([sys.executable, str(REPO / "install.py"), "--claude-dir",
                            str(claude_dir), "--no-path"], capture_output=True, text=True,
                           encoding="utf-8")
 
@@ -20,8 +21,8 @@ class TestInstall(unittest.TestCase):
     # install.py nhận hook cũ của kit bằng MARK "orchestra-kit/hooks/". Chạy từ worktree có tên khác
     # (vd orchestra-kit-v02) thì hook cũ không được nhận ra ⇒ ghi trùng. Chỉ bỏ qua đúng trường hợp đó
     # (FINDING-1 trong docs/phases/FINDINGS.md); bản cài thật nằm ở ~/orchestra-kit nên vẫn được kiểm.
-    @unittest.skipIf(KIT.name != "orchestra-kit",
-                     f"kit chạy từ '{KIT.name}', không phải 'orchestra-kit' (FINDING-1)")
+    @unittest.skipIf(REPO.name != "orchestra-kit",
+                     f"kit chạy từ '{REPO.name}', không phải 'orchestra-kit' (FINDING-1)")
     def test_install_is_idempotent_and_keeps_settings(self):
         with tempfile.TemporaryDirectory() as d:
             cd = Path(d)

@@ -10,7 +10,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-KIT = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent
+KIT = REPO / "plugins" / "orchestra"  # gốc plugin (cli/, hooks/, templates/…)
 sys.path.insert(0, str(KIT / "cli"))
 import orc_approval as oa  # noqa: E402
 import orc_core as oc  # noqa: E402
@@ -328,7 +329,7 @@ class TestSafeMode(Base):
 
 class TestShadowReport(Base):
     def test_report_counts_would_deny(self):
-        sys.path.insert(0, str(KIT / "tools"))
+        sys.path.insert(0, str(REPO / "tools"))
         import phase3_shadow_report as rep  # noqa: PLC0415
         oc.advance(self.root, self.t, "dispatched")
         for cmd in ("npm install x", "npm run test", "git push"):

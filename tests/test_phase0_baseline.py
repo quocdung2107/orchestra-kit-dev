@@ -7,9 +7,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-KIT = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent
+KIT = REPO / "plugins" / "orchestra"  # gốc plugin (cli/, hooks/, templates/…)
 sys.path.insert(0, str(KIT / "cli"))
-sys.path.insert(0, str(KIT / "tools"))
+sys.path.insert(0, str(REPO / "tools"))
 import orc_core as oc  # noqa: E402
 import phase0_baseline as pb  # noqa: E402
 

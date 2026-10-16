@@ -8,7 +8,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-KIT = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent
+KIT = REPO / "plugins" / "orchestra"  # gốc plugin (cli/, hooks/, templates/…)
 sys.path.insert(0, str(KIT / "cli"))
 import orc_core as oc  # noqa: E402
 
