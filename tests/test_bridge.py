@@ -80,5 +80,26 @@ class TestBridge(unittest.TestCase):
         self.assert_runs()
 
 
+class TestPluginHooks(unittest.TestCase):
+    """hooks/hooks.json của plugin: đủ 4 sự kiện, trỏ tới file có thật, no-op khi không có .orchestra/."""
+
+    def test_hooks_json_complete_and_noop_outside_orchestra(self):
+        cfg = json.loads((KIT / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+        want = {"SessionStart": "session_start", "Stop": "stop_check",
+                "UserPromptSubmit": "prompt_log", "PreToolUse": "guard"}
+        self.assertEqual(set(cfg), set(want))
+        self.assertEqual(cfg["PreToolUse"][0]["matcher"], "*")
+        with tempfile.TemporaryDirectory() as d:
+            for event, name in want.items():
+                cmd = cfg[event][0]["hooks"][0]["command"]
+                self.assertEqual(cmd, f'python "${{CLAUDE_PLUGIN_ROOT}}/hooks/{name}"')
+                self.assertTrue((KIT / "hooks" / name).is_file(), name)
+                payload = {"cwd": d, "session_id": "x", "prompt": "orc:approve TASK-0001 ABC",
+                           "tool_name": "Write", "tool_input": {"file_path": f"{d}/a.txt"}}
+                code, out, err = hook(name, payload, plugin_root=str(KIT))
+                self.assertEqual((code, out), (0, ""), (name, err))
+            self.assertFalse((Path(d) / ".orchestra").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

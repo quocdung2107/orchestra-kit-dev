@@ -223,6 +223,11 @@ class TestGuardDecide(Base):
         self.assertEqual(self.d(a, "Edit", {"file_path": "app/src/a.ts"}), "deny")
         self.assertEqual(self.d(a, "WebSearch", {"query": "x"}), "deny")
         self.assertEqual(self.d(a, "WebSearch", {"query": "x"}, agent_type="researcher-external"), "allow")
+        # chế độ plugin: agent_type có namespace
+        self.assertEqual(self.d(a, "WebSearch", {"query": "x"}, agent_type="orchestra:researcher-external"),
+                         "allow")
+        self.assertEqual(self.d(a, "WebSearch", {"query": "x"}, agent_type="khac:researcher-external"), "deny")
+        self.assertEqual(self.d(a, "WebSearch", {"query": "x"}, agent_type="orchestra:researcher"), "deny")
         self.assertEqual(self.d(a, "Bash", {"command": "git log --oneline -5"}), "allow")
         self.assertEqual(self.d(a, "Bash", {"command": "git commit -m x"}), "allow")  # FINDING-6: hậu kiểm
         v = self.act([("TASK-0002", "in_review", "coder", ["app/src/"], [".orchestra/artifacts/ART-0009.md"])])

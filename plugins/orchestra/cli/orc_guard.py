@@ -112,6 +112,12 @@ def match_path(path: str, patterns) -> bool:
 
 # ---------------------------------------------------------------- tiện ích
 
+def bare_agent(name) -> str:
+    """Tên agent bỏ namespace plugin: "orchestra:coder" → "coder" (kit cũ gọi bằng tên trần)."""
+    s = str(name or "")
+    return s[len("orchestra:"):] if s.startswith("orchestra:") else s
+
+
 def find_root(start):
     p = Path(start).resolve()
     for d in (p, *p.parents):
@@ -281,7 +287,7 @@ def decide(root: Path, active, tool: str, ti: dict, agent_type: str | None = Non
     if tool in WEB_TOOLS:
         if mode in ("implement", "verify"):
             return "deny", f"{mode}: không dùng web khi đang sửa/kiểm code", mode
-        if mode == "research" and agent_type != "researcher-external":
+        if mode == "research" and bare_agent(agent_type) != "researcher-external":
             return "deny", "research: web chỉ qua subagent researcher-external", mode
         return "allow", f"{mode}: web", mode
     if tool in PASS_TOOLS:
